@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 
 
 class AdminUserOut(BaseModel):
@@ -28,3 +28,21 @@ class ScraperStatus(BaseModel):
 class TriggerResponse(BaseModel):
     queued: bool
     reason: str
+
+
+class RunSourceBody(BaseModel):
+    source: str
+
+    @field_validator("source")
+    @classmethod
+    def strip_non_empty(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("source must not be empty")
+        return s
+
+
+class RunSourceResponse(BaseModel):
+    queued: bool
+    reason: str
+    source: str

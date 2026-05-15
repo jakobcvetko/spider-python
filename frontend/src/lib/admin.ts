@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from './api'
@@ -28,6 +28,12 @@ export type ScraperStatus = {
   sources: string[]
   interval_seconds: number
   recent_events: ScraperEvent[]
+}
+
+export type RunSourceResponse = {
+  queued: boolean
+  reason: string
+  source: string
 }
 
 export const adminKeys = {
@@ -73,6 +79,21 @@ export function useTriggerScraper() {
   })
 }
 
+export function useRunSourceScrape() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (source: string) => {
+      const { data } = await api.post<RunSourceResponse>('/admin/scraper/run-source', {
+        source,
+      })
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.scraperStatus })
+    },
+  })
+}
+
 type WsSnapshot = {
   kind: 'snapshot'
   events: ScraperEvent[]
@@ -86,6 +107,7 @@ export type ScraperLive = {
   status: ScraperStatus | null
   events: ScraperEvent[]
   socketConnected: boolean
+  clearEvents: () => void
 }
 
 const MAX_LIVE_EVENTS = 200
@@ -99,39 +121,55 @@ export function useScraperLive(enabled: boolean): ScraperLive {
   const [status, setStatus] = useState<ScraperStatus | null>(null)
   const [events, setEvents] = useState<ScraperEvent[]>([])
   const [socketConnected, setSocketConnected] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const stoppedRef = useRef(false)
 
   useEffect(() => {
     if (!enabled) return
 
-    stoppedRef.current = false
+    // All state for this connection lifecycle is closure-scoped so that
+    // stale handlers from a previous effect run (React 19 StrictMode mounts
+    // every effect twice in dev) can't touch the current socket or trigger
+    // a reconnect cascade. The old bug: an old socket's onclose would fire
+    // after the new mount, null out the shared ref, and schedule another
+    // connect — leaving multiple live sockets all delivering the same
+    // events to setEvents, multiplying every incoming heartbeat.
+    let alive = true
+    let socket: WebSocket | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
     const connect = () => {
+      if (!alive) return
       const ws = new WebSocket(wsUrlFor('/api/admin/scraper/ws'))
-      wsRef.current = ws
+      socket = ws
 
-      ws.onopen = () => setSocketConnected(true)
+      ws.onopen = () => {
+        if (!alive || ws !== socket) return
+        setSocketConnected(true)
+      }
       ws.onclose = () => {
+        if (!alive || ws !== socket) return
         setSocketConnected(false)
-        wsRef.current = null
-        if (!stoppedRef.current) {
-          reconnectRef.current = setTimeout(connect, 1500)
-        }
+        socket = null
+        reconnectTimer = setTimeout(connect, 1500)
       }
       ws.onerror = () => {
-        // onclose will follow and trigger reconnect
+        // onclose will follow and handle reconnect.
       }
       ws.onmessage = (e) => {
+        if (!alive || ws !== socket) return
         try {
           const msg = JSON.parse(e.data) as WsMessage
           if (msg.kind === 'snapshot') {
             setStatus(msg.status)
             setEvents(msg.events.slice(-MAX_LIVE_EVENTS))
           } else if (msg.kind === 'event') {
+            const incoming = msg.event
             setEvents((prev) => {
-              const next = prev.concat(msg.event)
+              // Defensive de-dupe: server NOTIFY occasionally fans out the
+              // same event through multiple paths during reconnects.
+              if (prev.some((existing) => existing.id === incoming.id)) {
+                return prev
+              }
+              const next = prev.concat(incoming)
               return next.length > MAX_LIVE_EVENTS
                 ? next.slice(next.length - MAX_LIVE_EVENTS)
                 : next
@@ -148,13 +186,13 @@ export function useScraperLive(enabled: boolean): ScraperLive {
     connect()
 
     return () => {
-      stoppedRef.current = true
-      if (reconnectRef.current) {
-        clearTimeout(reconnectRef.current)
-        reconnectRef.current = null
+      alive = false
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
       }
-      const ws = wsRef.current
-      wsRef.current = null
+      const ws = socket
+      socket = null
       if (ws && ws.readyState <= WebSocket.OPEN) {
         ws.close()
       }
@@ -162,5 +200,7 @@ export function useScraperLive(enabled: boolean): ScraperLive {
     }
   }, [enabled])
 
-  return { status, events, socketConnected }
+  const clearEvents = useCallback(() => setEvents([]), [])
+
+  return { status, events, socketConnected, clearEvents }
 }

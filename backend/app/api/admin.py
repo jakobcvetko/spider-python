@@ -5,7 +5,7 @@ import json
 import logging
 import time
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.deps import get_admin_user_from_cookie, require_admin
 from app.models import User
-from app.schemas.admin import AdminUserOut, ScraperStatus, TriggerResponse
+from app.schemas.admin import AdminUserOut, RunSourceBody, RunSourceResponse, ScraperStatus, TriggerResponse
 from app.scraper_events import get_event_bus, make_event
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -68,6 +68,27 @@ async def trigger_scraper(current: User = Depends(require_admin)) -> TriggerResp
     reason = f"manual trigger by {current.email}"
     await bus.send_command({"action": "run_now", "reason": reason})
     return TriggerResponse(queued=True, reason=reason)
+
+
+@router.post("/scraper/run-source", response_model=RunSourceResponse)
+async def run_source_scrape(
+    body: RunSourceBody,
+    current: User = Depends(require_admin),
+) -> RunSourceResponse:
+    from scraper.sources import ALL_SOURCES
+
+    known = {s.name for s in ALL_SOURCES}
+    if body.source not in known:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown source {body.source!r}. Known: {sorted(known)}",
+        )
+    bus = get_event_bus()
+    reason = f"admin debug scrape by {current.email}"
+    await bus.send_command(
+        {"action": "run_source", "source": body.source, "reason": reason}
+    )
+    return RunSourceResponse(queued=True, reason=reason, source=body.source)
 
 
 @router.websocket("/scraper/ws")

@@ -32,7 +32,7 @@ from app.scraper_events import (
     make_event,
     publish_event,
 )
-from scraper.base import Source, upsert_items
+from scraper.base import Source, item_to_dict, upsert_items
 from scraper.sources import ALL_SOURCES
 
 logging.basicConfig(
@@ -116,6 +116,8 @@ async def run_source(
     client: httpx.AsyncClient,
     publisher: EventPublisher,
     source_holder: dict[str, str | None],
+    *,
+    debug: bool = False,
 ) -> None:
     source_holder["name"] = source.name
     log.info("[%s] starting fetch", source.name)
@@ -143,6 +145,34 @@ async def run_source(
             data={"count": len(items)},
         )
     )
+
+    if debug and not items:
+        await publisher.emit(
+            make_event(
+                "parsed_empty",
+                source=source.name,
+                message="0 candidate listings — scroll up for HTTP status/redirects; HTML may be a bot wall or selectors may not match the page",
+                data={"hint": "empty_parse"},
+            )
+        )
+
+    if debug and items:
+        preview: list[dict] = []
+        for item in items[:15]:
+            row = item_to_dict(item)
+            row.pop("raw", None)
+            title = row.get("title")
+            if isinstance(title, str) and len(title) > 120:
+                row["title"] = title[:117] + "..."
+            preview.append(row)
+        await publisher.emit(
+            make_event(
+                "parsed_preview",
+                source=source.name,
+                message=f"preview {len(preview)} of {len(items)} parsed rows (admin debug)",
+                data={"total": len(items), "shown": len(preview), "items": preview},
+            )
+        )
 
     if not items:
         return
@@ -227,6 +257,52 @@ async def commands_loop(
         finally:
             in_flight = False
 
+    async def handle_run_source(source_name: str, reason: str) -> None:
+        nonlocal in_flight
+        if in_flight:
+            await publisher.emit(
+                make_event(
+                    "trigger_skipped",
+                    message="run already in progress; ignoring single-source scrape",
+                    data={"requested_source": source_name},
+                )
+            )
+            return
+        match = next((s for s in sources if s.name == source_name), None)
+        if match is None:
+            known = [s.name for s in sources]
+            await publisher.emit(
+                make_event(
+                    "debug_source_unknown",
+                    message=f"unknown source {source_name!r}; known: {known}",
+                    data={"source": source_name, "known": known},
+                )
+            )
+            return
+        in_flight = True
+        t0 = time.perf_counter()
+        try:
+            await publisher.emit(
+                make_event(
+                    "debug_source_start",
+                    source=match.name,
+                    message=f"admin single-source scrape ({reason})",
+                    data={"reason": reason},
+                )
+            )
+            await run_source(match, client, publisher, source_holder, debug=True)
+        finally:
+            elapsed_ms = round((time.perf_counter() - t0) * 1000)
+            await publisher.emit(
+                make_event(
+                    "debug_source_done",
+                    source=match.name,
+                    message=f"single-source scrape finished in {elapsed_ms}ms",
+                    data={"elapsed_ms": elapsed_ms},
+                )
+            )
+            in_flight = False
+
     while not stop_event.is_set():
         try:
             async with asyncpg_connection() as conn:
@@ -260,6 +336,13 @@ async def commands_loop(
                     if action == "run_now":
                         reason = command.get("reason") or "manual trigger"
                         asyncio.create_task(handle_run_now(reason))
+                    elif action == "run_source":
+                        source_name = command.get("source")
+                        if not isinstance(source_name, str) or not source_name.strip():
+                            log.warning("run_source command missing source: %r", command)
+                            continue
+                        reason = command.get("reason") or "admin single-source scrape"
+                        asyncio.create_task(handle_run_source(source_name.strip(), str(reason)))
                     else:
                         log.info("unknown command action: %r", action)
 
