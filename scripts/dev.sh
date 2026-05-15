@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Run backend, frontend, and scraper concurrently with prefixed log output.
+# Run backend and frontend concurrently with prefixed log output.
 # Used by `make dev`. Ctrl+C (or SIGTERM) stops everything cleanly,
 # including grandchildren (uvicorn's reload worker, vite, etc.).
+#
+# The scraper worker is intentionally NOT started here — run it separately
+# with `make scraper` when you want live scraping.
 
 set -uo pipefail
 
@@ -42,25 +45,20 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM EXIT
 
-echo "==> Starting backend (:8000), frontend (:5173), and scraper..."
+echo "==> Starting backend (:8000) and frontend (:5173)..."
+echo "==> Run the scraper separately with: make scraper"
 echo "==> Press Ctrl+C to stop all."
 echo
 
 (
   cd "$ROOT/backend"
-  uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 2>&1 | prefix "be     "
+  uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 2>&1 | prefix "be"
 ) &
 PIDS+=("$!")
 
 (
   cd "$ROOT/frontend"
-  npm run dev -- --host 127.0.0.1 --port 5173 2>&1 | prefix "fe     "
-) &
-PIDS+=("$!")
-
-(
-  cd "$ROOT/backend"
-  uv run python -m scraper.worker 2>&1 | prefix "scraper"
+  npm run dev -- --host 127.0.0.1 --port 5173 2>&1 | prefix "fe"
 ) &
 PIDS+=("$!")
 

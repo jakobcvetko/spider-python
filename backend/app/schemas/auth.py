@@ -21,4 +21,5 @@ class UserOut(BaseModel):
     id: uuid.UUID
     email: EmailStr
     display_name: str | None
+    is_admin: bool
     created_at: datetime

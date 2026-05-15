@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { Button, Card, PageShell } from '../components/ui'
 import { useLogout, useMe } from '../lib/auth'
@@ -25,9 +25,19 @@ export default function DashboardPage() {
             <span className="text-zinc-200">{me.data?.display_name || me.data?.email}</span>
           </p>
         </div>
-        <Button variant="ghost" loading={logout.isPending} onClick={onLogout}>
-          Sign out
-        </Button>
+        <div className="flex items-center gap-2">
+          {me.data?.is_admin && (
+            <Link
+              to="/admin"
+              className="rounded-lg px-3 py-2 text-sm font-medium text-indigo-300 hover:bg-zinc-800"
+            >
+              Admin
+            </Link>
+          )}
+          <Button variant="ghost" loading={logout.isPending} onClick={onLogout}>
+            Sign out
+          </Button>
+        </div>
       </header>
 
       <Card>

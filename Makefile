@@ -47,7 +47,7 @@ fe: ## Run frontend only (Vite on :5173)
 scraper: ## Run scraper worker only (APScheduler)
 	cd backend && uv run python -m scraper.worker
 
-dev: db-up migrate ## Run db + backend + frontend + scraper together
+dev: db-up migrate ## Run db + backend + frontend (scraper runs separately via `make scraper`)
 	@exec bash scripts/dev.sh
 
 stop: db-down ## Stop everything (docker)

@@ -4,6 +4,11 @@ Monorepo for the Spider app: a FastAPI backend, a React (Vite + TS) frontend,
 and a background scraper worker that polls avto.net and bolha.com and stores
 new listings in Postgres.
 
+> **Working with an AI coding agent on this repo?** Start with
+> [`AGENTS.md`](./AGENTS.md) — it contains the architecture summary, repo map,
+> and conventions/gotchas that Cursor, Claude Code, Codex, Aider, etc. should
+> read before editing.
+
 ## Stack
 
 - **Backend**: FastAPI · SQLAlchemy 2 (async) · Alembic · asyncpg · Pydantic v2 · Argon2 · `uv`
