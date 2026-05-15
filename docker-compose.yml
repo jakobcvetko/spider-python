@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: spider_pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: spider
+      POSTGRES_PASSWORD: spider
+      POSTGRES_DB: spider
+    ports:
+      - "5435:5432"
+    volumes:
+      - spider_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spider -d spider"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  spider_pg_data:
