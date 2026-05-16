@@ -215,6 +215,32 @@ def merge_ad_status(current: str, new: str) -> str:
     return current
 
 
+async def emit_bolha_ad_update(
+    emit: EmitFn,
+    row: BolhaAd,
+    *,
+    source: str,
+    scrape_entry: dict[str, Any],
+) -> None:
+    """Push a compact scrape patch (NOTIFY payload limit is 8 KB)."""
+    if emit is None:
+        return
+    await emit(
+        make_event(
+            "bolha_ad_update",
+            source=source,
+            message=f"bolha ad {row.ad_id} updated",
+            data={
+                "ad_id": int(row.ad_id),
+                "status": row.status,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                "scrape": scrape_entry,
+            },
+        )
+    )
+
+
 async def record_bolha_ad_scrape(
     db: AsyncSession,
     ad_id: int,
@@ -224,6 +250,7 @@ async def record_bolha_ad_scrape(
     fetched_at: datetime,
     http_status: int | None = None,
     detail: str | None = None,
+    emit: EmitFn = None,
 ) -> None:
     """Append a scrape attempt to bolha_ads and update ad-level status."""
     entry: dict[str, Any] = {
@@ -239,13 +266,17 @@ async def record_bolha_ad_scrape(
     new_status = ad_status_from_scrape_result(result)
     row = await db.get(BolhaAd, ad_id)
     if row is None:
-        db.add(BolhaAd(ad_id=ad_id, status=new_status, scrape_log=[entry]))
+        row = BolhaAd(ad_id=ad_id, status=new_status, scrape_log=[entry])
+        db.add(row)
     else:
         log_entries = list(row.scrape_log or [])
         log_entries.append(entry)
         row.scrape_log = log_entries
         row.status = merge_ad_status(row.status, new_status)
     await db.flush()
+    if emit is not None:
+        await db.refresh(row)
+        await emit_bolha_ad_update(emit, row, source=source, scrape_entry=entry)
 
 
 async def record_bolha_ad_scrape_from_outcome(
@@ -257,6 +288,7 @@ async def record_bolha_ad_scrape_from_outcome(
     fetched_at: datetime,
     http_status: int | None = None,
     detail: str | None = None,
+    emit: EmitFn = None,
 ) -> None:
     result = scrape_result_from_outcome(outcome)
     await record_bolha_ad_scrape(
@@ -267,6 +299,7 @@ async def record_bolha_ad_scrape_from_outcome(
         fetched_at=fetched_at,
         http_status=http_status,
         detail=detail,
+        emit=emit,
     )
 
 
@@ -536,6 +569,7 @@ async def probe_ad_id(
                 fetched_at=now,
                 http_status=-1,
                 detail=str(e),
+                emit=emit,
             )
             return None
 
@@ -558,6 +592,7 @@ async def probe_ad_id(
             outcome=oc,
             fetched_at=now,
             http_status=http_st,
+            emit=emit,
         )
         await emit_progress_tick(
             emit,

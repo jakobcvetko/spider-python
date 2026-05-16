@@ -11,6 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.listings import listing_default_order
+from app.bolha_ads_serialize import bolha_ad_to_out as _bolha_ad_to_out
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_admin_user_from_cookie, require_admin
@@ -27,7 +28,6 @@ from app.schemas.admin import (
     AdminListingOut,
     AdminUserOut,
     BolhaAdOut,
-    BolhaAdScrapeEntryOut,
     BolhaAdStateOut,
     BolhaProgressiveRow,
     BolhaProgressiveState,
@@ -290,42 +290,6 @@ async def bolha_progressive_state(
         lookahead_rows=lookahead_rows,
         pivot_row=pivot_row,
         tail_rows=tail_rows,
-    )
-
-
-def _bolha_ad_to_out(row: BolhaAd) -> BolhaAdOut:
-    origin = row.created_at
-    scrapes: list[BolhaAdScrapeEntryOut] = []
-    for raw in row.scrape_log or []:
-        if not isinstance(raw, dict):
-            continue
-        at_raw = raw.get("at")
-        if not at_raw:
-            continue
-        try:
-            at = datetime.fromisoformat(str(at_raw).replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        if at.tzinfo is None:
-            at = at.replace(tzinfo=timezone.utc)
-        offset = (at - origin).total_seconds()
-        http_st = raw.get("http_status")
-        scrapes.append(
-            BolhaAdScrapeEntryOut(
-                offset_seconds=round(offset, 1),
-                at=at,
-                source=str(raw.get("source", "")),
-                result=str(raw.get("result", "")),
-                http_status=int(http_st) if http_st is not None else None,
-                detail=raw.get("detail"),
-            )
-        )
-    return BolhaAdOut(
-        ad_id=row.ad_id,
-        status=row.status,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        scrapes=scrapes,
     )
 
 

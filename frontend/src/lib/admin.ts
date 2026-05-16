@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 
 import { api } from './api'
 
@@ -62,7 +62,10 @@ export const adminKeys = {
 }
 
 /** Highest ad_id rows shown on the live bolha_ads registry table. */
-export const BOLHA_ADS_TOP_LIMIT = 50
+export const BOLHA_ADS_TOP_LIMIT = 200
+
+/** Matches backend ``LOOKAHEAD_ADS`` (bolha.lookahead window size). */
+export const BOLHA_LOOKAHEAD_COUNT = 20
 
 export function useAdminUsers(enabled: boolean) {
   return useQuery<AdminUser[]>({
@@ -137,9 +140,202 @@ export function bolhaAdUrl(adId: number): string {
   return `https://iapi.bolha.com/avtomobili/progressive-scrape-oglas-${adId}`
 }
 
+export function bolhaAdsQueryKey(limit: number) {
+  return [...adminKeys.bolhaAds, limit] as const
+}
+
+function normalizeAdId(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+  }
+  return null
+}
+
+function parseScrapeEntry(raw: unknown, createdAtIso: string): BolhaAdScrapeEntry | null {
+  if (!raw || typeof raw !== 'object') return null
+  const s = raw as Record<string, unknown>
+  const at = typeof s.at === 'string' ? s.at : null
+  const result = typeof s.result === 'string' ? s.result : null
+  const source = typeof s.source === 'string' ? s.source : null
+  if (!at || !result || !source) return null
+  const origin = Date.parse(createdAtIso)
+  const atMs = Date.parse(at)
+  const offset_seconds =
+    Number.isFinite(origin) && Number.isFinite(atMs) ? Math.round((atMs - origin) / 100) / 10 : 0
+  const http_status =
+    typeof s.http_status === 'number'
+      ? s.http_status
+      : typeof s.http_status === 'string' && s.http_status !== ''
+        ? Number(s.http_status)
+        : null
+  return {
+    offset_seconds,
+    at,
+    source,
+    result,
+    http_status: http_status != null && Number.isFinite(http_status) ? http_status : null,
+    detail: typeof s.detail === 'string' ? s.detail : null,
+  }
+}
+
+function parseBolhaAdRow(raw: unknown): BolhaAdRow | null {
+  if (!raw || typeof raw !== 'object') return null
+  const row = raw as BolhaAdRow
+  const adId = normalizeAdId(row.ad_id)
+  if (adId == null || !Array.isArray(row.scrapes)) return null
+  return { ...row, ad_id: adId }
+}
+
+/** Apply one ``bolha_ad_update`` event to the React Query cache (patch or legacy full row). */
+export function applyBolhaAdWsEvent(qc: QueryClient, limit: number, ev: ScraperEvent): boolean {
+  if (ev.kind !== 'bolha_ad_update' || !ev.data) return false
+  if (ev.data._truncated) return false
+
+  const legacyRow = ev.data.row != null ? parseBolhaAdRow(ev.data.row) : null
+  if (legacyRow) {
+    qc.setQueryData<BolhaAdRow[]>(bolhaAdsQueryKey(limit), (prev) => {
+      if (!prev) return prev
+      const idx = prev.findIndex((x) => x.ad_id === legacyRow.ad_id)
+      if (idx >= 0) {
+        const next = prev.slice()
+        next[idx] = legacyRow
+        return next
+      }
+      return [legacyRow, ...prev].sort((a, b) => b.ad_id - a.ad_id).slice(0, limit)
+    })
+    return true
+  }
+
+  const adId = normalizeAdId(ev.data.ad_id)
+  const createdAt = typeof ev.data.created_at === 'string' ? ev.data.created_at : null
+  const scrape = createdAt ? parseScrapeEntry(ev.data.scrape, createdAt) : null
+  if (adId == null || !scrape || typeof ev.data.status !== 'string' || !createdAt) return false
+
+  const updatedAt =
+    typeof ev.data.updated_at === 'string' ? ev.data.updated_at : createdAt
+
+  qc.setQueryData<BolhaAdRow[]>(bolhaAdsQueryKey(limit), (prev) => {
+    if (!prev) return prev
+    const idx = prev.findIndex((x) => x.ad_id === adId)
+    if (idx >= 0) {
+      const cur = prev[idx]
+      if (cur.scrapes.some((s) => s.at === scrape.at)) return prev
+      const next = prev.slice()
+      next[idx] = {
+        ...cur,
+        status: ev.data.status as string,
+        updated_at: updatedAt,
+        scrapes: [...cur.scrapes, scrape],
+      }
+      return next
+    }
+    const row: BolhaAdRow = {
+      ad_id: adId,
+      status: ev.data.status as string,
+      created_at: createdAt,
+      updated_at: updatedAt,
+      scrapes: [scrape],
+    }
+    return [row, ...prev].sort((a, b) => b.ad_id - a.ad_id).slice(0, limit)
+  })
+  return true
+}
+
+export type BolhaPivotMeta = {
+  lastWorkingId: number
+  scanAnchorId: number
+  lookaheadCount: number
+}
+
+/** Track last-working / lookahead band from scraper WS events (no progressive-state HTTP). */
+export function useBolhaPivotFromWs(
+  enabled: boolean,
+  events: ScraperEvent[],
+): BolhaPivotMeta {
+  return useMemo(() => {
+    if (!enabled) {
+      return { lastWorkingId: 0, scanAnchorId: 0, lookaheadCount: BOLHA_LOOKAHEAD_COUNT }
+    }
+    let lastWorkingId = 0
+    let scanAnchorId = 0
+    for (const ev of events) {
+      if (ev.kind === 'bolha_progressive_tick') {
+        const lw = ev.data?.last_working_ad_id
+        if (typeof lw === 'number') lastWorkingId = lw
+      }
+      if (ev.kind === 'bolha_scout_done') {
+        const na = ev.data?.new_anchor
+        if (typeof na === 'number') {
+          lastWorkingId = na
+          scanAnchorId = na
+        }
+      }
+    }
+    return { lastWorkingId, scanAnchorId, lookaheadCount: BOLHA_LOOKAHEAD_COUNT }
+  }, [enabled, events])
+}
+
+/** Live bolha_ad_update handler: immediate per-event delivery + replay after initial load. */
+export function useBolhaAdsWsSync(
+  enabled: boolean,
+  limit: number,
+  events: ScraperEvent[],
+  adsReady: boolean,
+  socketConnected: boolean,
+): void {
+  const qc = useQueryClient()
+  const seenIds = useRef(new Set<string>())
+  const wasConnected = useRef(false)
+  const adsReadyRef = useRef(adsReady)
+
+  useEffect(() => {
+    adsReadyRef.current = adsReady
+  }, [adsReady])
+
+  const applyOne = useCallback(
+    (ev: ScraperEvent) => {
+      if (!adsReadyRef.current || seenIds.current.has(ev.id)) return
+      if (ev.kind !== 'bolha_ad_update') return
+      if (applyBolhaAdWsEvent(qc, limit, ev)) {
+        seenIds.current.add(ev.id)
+      }
+    },
+    [qc, limit],
+  )
+
+  useEffect(() => {
+    if (!enabled) {
+      seenIds.current.clear()
+      wasConnected.current = false
+    }
+  }, [enabled])
+
+  useEffect(() => {
+    if (!enabled) return
+    if (socketConnected && !wasConnected.current) {
+      seenIds.current.clear()
+    }
+    wasConnected.current = socketConnected
+  }, [enabled, socketConnected])
+
+  useEffect(() => {
+    if (!enabled || !adsReady) return
+    for (const ev of events) {
+      applyOne(ev)
+    }
+  }, [enabled, adsReady, events, applyOne])
+
+  useEffect(() => {
+    if (!enabled) return
+    return subscribeScraperEvents(applyOne)
+  }, [enabled, applyOne])
+}
+
 export function useBolhaAds(enabled: boolean, limit = BOLHA_ADS_TOP_LIMIT) {
   return useQuery<BolhaAdRow[]>({
-    queryKey: [...adminKeys.bolhaAds, limit] as const,
+    queryKey: bolhaAdsQueryKey(limit),
     queryFn: async () => {
       const { data } = await api.get<BolhaAdRow[]>('/admin/bolha/ads', {
         params: { limit },
@@ -147,8 +343,25 @@ export function useBolhaAds(enabled: boolean, limit = BOLHA_ADS_TOP_LIMIT) {
       return data
     },
     enabled,
-    refetchInterval: enabled ? 2_000 : false,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
+}
+
+const scraperEventListeners = new Set<(ev: ScraperEvent) => void>()
+
+export function subscribeScraperEvents(listener: (ev: ScraperEvent) => void): () => void {
+  scraperEventListeners.add(listener)
+  return () => {
+    scraperEventListeners.delete(listener)
+  }
+}
+
+function notifyScraperEventListeners(ev: ScraperEvent): void {
+  for (const listener of scraperEventListeners) {
+    listener(ev)
+  }
 }
 
 export function useBolhaAdStates(enabled: boolean, limit = 10_000) {
@@ -313,9 +526,14 @@ export function useScraperLive(enabled: boolean): ScraperLive {
           const msg = JSON.parse(e.data) as WsMessage
           if (msg.kind === 'snapshot') {
             setStatus(msg.status)
-            setEvents(msg.events.slice(-MAX_LIVE_EVENTS))
+            const snapshot = msg.events.slice(-MAX_LIVE_EVENTS)
+            setEvents(snapshot)
+            for (const ev of snapshot) {
+              notifyScraperEventListeners(ev)
+            }
           } else if (msg.kind === 'event') {
             const incoming = msg.event
+            notifyScraperEventListeners(incoming)
             setEvents((prev) => {
               // Defensive de-dupe: server NOTIFY occasionally fans out the
               // same event through multiple paths during reconnects.

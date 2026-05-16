@@ -1,16 +1,13 @@
 import { useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
 
-import { Button, Card, PageShell } from '../components/ui'
+import { Button, Card } from '../components/ui'
 import {
   type ScraperEvent,
-  useAdminListings,
   useAdminUsers,
   useScraperLive,
   useTriggerScraper,
 } from '../lib/admin'
-import { getErrorMessage, useLogout, useMe } from '../lib/auth'
-import { formatPrice } from '../lib/listings'
+import { getErrorMessage } from '../lib/auth'
 
 const KIND_COLORS: Record<string, string> = {
   http_request: 'text-sky-300',
@@ -57,99 +54,22 @@ function eventLabel(ev: ScraperEvent): string {
 }
 
 export default function AdminPage() {
-  const navigate = useNavigate()
-  const me = useMe()
-  const logout = useLogout()
-  const isAdmin = Boolean(me.data?.is_admin)
-
-  const users = useAdminUsers(isAdmin)
-  const adminListings = useAdminListings(isAdmin)
-  const live = useScraperLive(isAdmin)
+  const users = useAdminUsers(true)
+  const live = useScraperLive(true)
   const trigger = useTriggerScraper()
 
   const triggerError = trigger.error ? getErrorMessage(trigger.error) : null
-
-  const onLogout = async () => {
-    await logout.mutateAsync()
-    navigate('/login', { replace: true })
-  }
-
-  // Newest first for display.
   const events = useMemo(() => live.events.slice().reverse(), [live.events])
-
-  if (me.isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400">
-        Loading…
-      </div>
-    )
-  }
-
-  if (!isAdmin) {
-    return (
-      <PageShell>
-        <Card>
-          <h1 className="mb-2 text-lg font-semibold">Admins only</h1>
-          <p className="text-sm text-zinc-400">
-            Your account doesn't have admin access.{' '}
-            <Link to="/" className="text-indigo-300 hover:underline">
-              Back to listings
-            </Link>
-          </p>
-        </Card>
-      </PageShell>
-    )
-  }
 
   const status = live.status
   const scraperConnected = Boolean(status?.connected)
 
   return (
-    <PageShell>
-      <header className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
-          <p className="text-sm text-zinc-400">
-            Signed in as{' '}
-            <span className="text-zinc-200">{me.data?.display_name || me.data?.email}</span>
-            <span className="ml-2 rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-indigo-200">
-              admin
-            </span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            to="/"
-            className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
-          >
-            Listings
-          </Link>
-          <Button variant="ghost" loading={logout.isPending} onClick={onLogout}>
-            Sign out
-          </Button>
-        </div>
+    <>
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
+        <p className="mt-1 text-sm text-zinc-400">Scraper status, live events, and users.</p>
       </header>
-
-      <nav className="mb-6 flex flex-wrap gap-2">
-        <Link
-          to="/admin/bolha"
-          className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-200 hover:border-indigo-500/40 hover:bg-zinc-800"
-        >
-          bolha.com debug
-        </Link>
-        <Link
-          to="/admin/bolha/ad-states"
-          className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-200 hover:border-indigo-500/40 hover:bg-zinc-800"
-        >
-          bolha ad states
-        </Link>
-        <Link
-          to="/admin/avto-net"
-          className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-200 hover:border-indigo-500/40 hover:bg-zinc-800"
-        >
-          avto.net debug
-        </Link>
-      </nav>
 
       <section className="mb-6 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">
@@ -249,104 +169,6 @@ export default function AdminPage() {
         </Card>
       </section>
 
-      <Card className="mb-6">
-        <div className="mb-3 flex items-end justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Recent listings</h2>
-            <p className="text-sm text-zinc-400">
-              Last 100: Bolha by ad ID (highest first), then others by time added.
-            </p>
-          </div>
-          {adminListings.isFetching && (
-            <span className="text-xs text-zinc-500">Refreshing…</span>
-          )}
-        </div>
-
-        {adminListings.isLoading ? (
-          <p className="text-sm text-zinc-500">Loading listings…</p>
-        ) : adminListings.error ? (
-          <p className="text-sm text-red-400">
-            Failed to load listings: {getErrorMessage(adminListings.error)}
-          </p>
-        ) : !adminListings.data || adminListings.data.length === 0 ? (
-          <p className="text-sm text-zinc-500">No listings in the database yet.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border border-zinc-800">
-            <table className="min-w-full divide-y divide-zinc-800 text-sm">
-              <thead className="bg-zinc-900/60 text-xs uppercase tracking-wide text-zinc-400">
-                <tr>
-                  <th className="w-14 px-2 py-2 text-left font-medium" aria-hidden />
-                  <th className="px-3 py-2 text-left font-medium">Title</th>
-                  <th className="px-3 py-2 text-left font-medium">Source</th>
-                  <th className="px-3 py-2 text-left font-medium">Price</th>
-                  <th className="px-3 py-2 text-left font-medium">Location</th>
-                  <th className="px-3 py-2 text-left font-medium">Year / km</th>
-                  <th className="px-3 py-2 text-left font-medium">Updated</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-900">
-                {adminListings.data.map((row) => (
-                  <tr key={row.id} className="hover:bg-zinc-900/40">
-                    <td className="px-2 py-1.5 align-middle">
-                      {row.image_url ? (
-                        <img
-                          src={row.image_url}
-                          alt=""
-                          className="h-10 w-14 rounded object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <span className="block h-10 w-14 rounded bg-zinc-800" />
-                      )}
-                    </td>
-                    <td className="max-w-[min(28rem,40vw)] px-3 py-2 align-middle">
-                      <a
-                        href={row.url}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="line-clamp-2 font-medium text-indigo-300 hover:underline"
-                      >
-                        {row.title}
-                      </a>
-                      <div className="mt-0.5 truncate text-[11px] text-zinc-500">
-                        {row.external_id}
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 align-middle text-zinc-300">
-                      {row.source}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 align-middle text-zinc-200">
-                      {formatPrice(row)}
-                    </td>
-                    <td className="max-w-[10rem] truncate px-3 py-2 align-middle text-zinc-400">
-                      {row.location || '—'}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 align-middle text-zinc-400">
-                      {row.year != null || row.mileage_km != null ? (
-                        <>
-                          {row.year != null && <span>{row.year}</span>}
-                          {row.year != null && row.mileage_km != null && (
-                            <span className="text-zinc-600"> · </span>
-                          )}
-                          {row.mileage_km != null && (
-                            <span>{row.mileage_km.toLocaleString()} km</span>
-                          )}
-                        </>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 align-middle text-zinc-400">
-                      {new Date(row.updated_at).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
       <Card>
         <div className="mb-3 flex items-end justify-between">
           <div>
@@ -405,6 +227,6 @@ export default function AdminPage() {
           </div>
         )}
       </Card>
-    </PageShell>
+    </>
   )
 }

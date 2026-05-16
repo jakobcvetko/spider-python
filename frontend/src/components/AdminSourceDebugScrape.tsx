@@ -1,14 +1,12 @@
 import { useMemo, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-
-import { Button, Card, PageShell } from './ui'
+import { Button, Card } from './ui'
 import {
   type ScraperEvent,
   type ScraperLive,
   useRunSourceScrape,
   useScraperLive,
 } from '../lib/admin'
-import { getErrorMessage, useLogout, useMe } from '../lib/auth'
+import { getErrorMessage } from '../lib/auth'
 
 const KIND_COLORS: Record<string, string> = {
   http_request: 'text-sky-300',
@@ -89,11 +87,7 @@ export function AdminSourceDebugScrape({
   children,
   prependSlot,
 }: AdminSourceDebugScrapeProps) {
-  const navigate = useNavigate()
-  const me = useMe()
-  const logout = useLogout()
-  const isAdmin = Boolean(me.data?.is_admin)
-  const live = useScraperLive(isAdmin)
+  const live = useScraperLive(true)
   const runSource = useRunSourceScrape()
 
   const scraperConnected = Boolean(live.status?.connected)
@@ -106,74 +100,15 @@ export function AdminSourceDebugScrape({
       .reverse()
   }, [live.events, sourceName])
 
-  const onLogout = async () => {
-    await logout.mutateAsync()
-    navigate('/login', { replace: true })
-  }
-
   const onScrapeOnce = () => {
     live.clearEvents()
     runSource.mutate(sourceName)
   }
 
-  if (me.isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400">
-        Loading…
-      </div>
-    )
-  }
-
-  if (!isAdmin) {
-    return (
-      <PageShell>
-        <Card>
-          <h1 className="mb-2 text-lg font-semibold">Admins only</h1>
-          <p className="text-sm text-zinc-400">
-            Your account doesn't have admin access.{' '}
-            <Link to="/" className="text-indigo-300 hover:underline">
-              Back to listings
-            </Link>
-          </p>
-        </Card>
-      </PageShell>
-    )
-  }
-
   return (
-    <PageShell>
-      <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
-            <Link to="/admin" className="text-indigo-300 hover:underline">
-              Admin
-            </Link>
-            <span className="text-zinc-600"> / </span>
-            <span className="text-zinc-400">{title}</span>
-          </p>
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            Signed in as{' '}
-            <span className="text-zinc-200">{me.data?.display_name || me.data?.email}</span>
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            to="/admin"
-            className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
-          >
-            Admin home
-          </Link>
-          <Link
-            to="/"
-            className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
-          >
-            Listings
-          </Link>
-          <Button variant="ghost" loading={logout.isPending} onClick={onLogout}>
-            Sign out
-          </Button>
-        </div>
+    <>
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
       </header>
 
       {prependSlot != null && (
@@ -282,6 +217,6 @@ export function AdminSourceDebugScrape({
           )}
         </div>
       </Card>
-    </PageShell>
+    </>
   )
 }

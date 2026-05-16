@@ -1,11 +1,11 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 
+import { AdminLayout } from './components/AdminLayout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import AdminPage from './pages/AdminPage'
 import AdminAvtoNetPage from './pages/AdminAvtoNetPage'
-import AdminBolhaAdStatesPage from './pages/AdminBolhaAdStatesPage'
-import AdminBolhaAdsPage from './pages/AdminBolhaAdsPage'
 import AdminBolhaPage from './pages/AdminBolhaPage'
+import AdminListingsPage from './pages/AdminListingsPage'
 import ListingsPage from './pages/ListingsPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -24,45 +24,21 @@ export default function App() {
         }
       />
       <Route
-        path="/admin/bolha/ad-states"
-        element={
-          <ProtectedRoute>
-            <AdminBolhaAdStatesPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/bolha/ads"
-        element={
-          <ProtectedRoute>
-            <AdminBolhaAdsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/bolha"
-        element={
-          <ProtectedRoute>
-            <AdminBolhaPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/avto-net"
-        element={
-          <ProtectedRoute>
-            <AdminAvtoNetPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/admin"
         element={
           <ProtectedRoute>
-            <AdminPage />
+            <AdminLayout />
           </ProtectedRoute>
         }
-      />
+      >
+        <Route index element={<AdminPage />} />
+        <Route path="listings" element={<AdminListingsPage />} />
+        <Route path="bolha" element={<AdminBolhaPage />} />
+        <Route path="bolha/ads" element={<Navigate to="/admin/bolha" replace />} />
+        <Route path="bolha/ad-states" element={<Navigate to="/admin/bolha" replace />} />
+        <Route path="avtonet" element={<AdminAvtoNetPage />} />
+        <Route path="avto-net" element={<Navigate to="/admin/avtonet" replace />} />
+      </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

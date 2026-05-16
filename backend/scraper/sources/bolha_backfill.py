@@ -89,6 +89,7 @@ class BolhaBackfillSource:
                         fetched_at=now,
                         http_status=-1,
                         detail=str(e),
+                        emit=emit,
                     )
                     await emit_progress_tick(
                         emit,
@@ -124,6 +125,7 @@ class BolhaBackfillSource:
                     outcome=oc,
                     fetched_at=now,
                     http_status=http_st,
+                    emit=emit,
                 )
                 await emit_progress_tick(
                     emit,

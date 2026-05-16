@@ -1,17 +1,37 @@
-import { Fragment, useEffect, useRef } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { Fragment, useEffect, useState } from 'react'
 
 import {
-  adminKeys,
   bolhaAdUrl,
   BOLHA_ADS_TOP_LIMIT,
   useBolhaAds,
-  useBolhaProgressiveState,
+  useBolhaAdsWsSync,
+  useBolhaPivotFromWs,
   useScraperLive,
   type BolhaAdRow,
   type BolhaAdScrapeEntry,
 } from '../lib/admin'
 import { Card } from './ui'
+
+const SCRAPE_TIMELINE_WIDTH_PX = 384
+const SCRAPE_TIMELINE_TICK_MS = 200
+
+const TIMELINE_WINDOWS = [
+  { id: '1m', label: '1m', ms: 60_000 },
+  { id: '30m', label: '30m', ms: 30 * 60_000 },
+  { id: '2h', label: '2h', ms: 2 * 60 * 60_000 },
+] as const
+
+type TimelineWindowId = (typeof TIMELINE_WINDOWS)[number]['id']
+
+function timelineWindowMs(id: TimelineWindowId): number {
+  return TIMELINE_WINDOWS.find((w) => w.id === id)?.ms ?? 60_000
+}
+
+function timelinePastLabel(ms: number): string {
+  if (ms < 60_000) return `−${Math.round(ms / 1000)}s`
+  if (ms < 3_600_000) return `−${Math.round(ms / 60_000)}m`
+  return `−${Math.round(ms / 3_600_000)}h`
+}
 
 function statusTone(status: string): string {
   switch (status) {
@@ -49,15 +69,28 @@ function fmtOffset(seconds: number): string {
   return `${m}m ${s}s`
 }
 
+function fmtAt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString()
+  } catch {
+    return iso
+  }
+}
+
 function scrapeTooltip(s: BolhaAdScrapeEntry): string {
-  const parts = [
-    fmtOffset(s.offset_seconds),
-    s.result,
-    s.source.replace('bolha.', ''),
-  ]
+  const parts = [fmtAt(s.at), fmtOffset(s.offset_seconds), s.result, s.source.replace('bolha.', '')]
   if (s.http_status != null) parts.push(`HTTP ${s.http_status}`)
   if (s.detail) parts.push(s.detail)
   return parts.join(' · ')
+}
+
+function useTimelineNow(tickMs = SCRAPE_TIMELINE_TICK_MS): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), tickMs)
+    return () => window.clearInterval(id)
+  }, [tickMs])
+  return now
 }
 
 function idGapCount(upperId: number, lowerId: number): number {
@@ -226,7 +259,17 @@ function IdGapRow({ upperId, lowerId }: { upperId: number; lowerId: number }) {
   )
 }
 
-function AdDataRow({ row, highlight }: { row: BolhaAdRow; highlight: RowHighlight }) {
+function AdDataRow({
+  row,
+  highlight,
+  now,
+  windowMs,
+}: {
+  row: BolhaAdRow
+  highlight: RowHighlight
+  now: number
+  windowMs: number
+}) {
   return (
     <tr className={rowClassName(highlight)}>
       <TimelineNode highlight={highlight} />
@@ -248,28 +291,70 @@ function AdDataRow({ row, highlight }: { row: BolhaAdRow; highlight: RowHighligh
         </span>
       </td>
       <td className="px-2 py-1.5">
-        <ScrapeLogStrip scrapes={row.scrapes} />
+        <ScrapeLogTimeline scrapes={row.scrapes} now={now} windowMs={windowMs} />
       </td>
       <td className="whitespace-nowrap px-2 py-1.5 text-right text-zinc-500">{row.scrapes.length}</td>
     </tr>
   )
 }
 
-function ScrapeLogStrip({ scrapes }: { scrapes: BolhaAdScrapeEntry[] }) {
-  if (scrapes.length === 0) {
-    return <span className="text-zinc-600">—</span>
-  }
+function ScrapeLogTimeline({
+  scrapes,
+  now,
+  windowMs,
+}: {
+  scrapes: BolhaAdScrapeEntry[]
+  now: number
+  windowMs: number
+}) {
+  const dots = scrapes
+    .map((s, index) => {
+      const t = Date.parse(s.at)
+      if (Number.isNaN(t)) return null
+      const age = now - t
+      if (age < 0 || age > windowMs) return null
+      return { s, t, index, age }
+    })
+    .filter((d): d is NonNullable<typeof d> => d != null)
+
+  const windowLabel = timelinePastLabel(windowMs).slice(1)
 
   return (
-    <div className="flex flex-wrap items-center gap-0.5" role="list" aria-label="Scrape history">
-      {scrapes.map((s, i) => (
-        <span
-          key={i}
-          role="listitem"
-          title={scrapeTooltip(s)}
-          className={`size-2.5 shrink-0 rounded-sm ${scrapeSquareFill(s.result)} ring-1 ring-zinc-950/40`}
-        />
-      ))}
+    <div
+      className="relative h-6 shrink-0 rounded bg-zinc-950/50 ring-1 ring-zinc-800/80"
+      style={{ width: SCRAPE_TIMELINE_WIDTH_PX }}
+      role="img"
+      aria-label={`Scrape attempts in the last ${windowLabel}; now on the right`}
+    >
+      <span className="pointer-events-none absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-zinc-700" />
+      <span
+        className="pointer-events-none absolute top-1/2 h-2 w-px -translate-y-1/2 bg-zinc-600"
+        style={{ left: '50%' }}
+        aria-hidden
+      />
+      <span
+        className="pointer-events-none absolute right-0 top-0 bottom-0 w-px bg-indigo-400/90 shadow-[0_0_6px_rgba(129,140,248,0.45)]"
+        aria-hidden
+      />
+
+      {dots.map(({ s, t, index, age }) => {
+        const leftPct = (1 - age / windowMs) * 100
+        const lane = index % 3
+        const yOffset = lane === 0 ? -3 : lane === 1 ? 0 : 3
+        return (
+          <span
+            key={`${t}-${index}`}
+            className="absolute top-1/2 transition-[left] duration-200 ease-linear"
+            style={{ left: `${leftPct}%` }}
+          >
+            <span
+              title={scrapeTooltip(s)}
+              className={`block size-2 -translate-x-1/2 rounded-full ${scrapeSquareFill(s.result)} ring-1 ring-zinc-950/50`}
+              style={{ marginTop: yOffset - 4 }}
+            />
+          </span>
+        )
+      })}
     </div>
   )
 }
@@ -280,29 +365,15 @@ type BolhaAdsTableProps = {
 }
 
 export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAdsTableProps) {
-  const qc = useQueryClient()
   const q = useBolhaAds(enabled, limit)
-  const progressive = useBolhaProgressiveState(enabled)
   const live = useScraperLive(enabled)
-  const lastTickId = useRef<string | null>(null)
+  const pivot = useBolhaPivotFromWs(enabled, live.events)
+  useBolhaAdsWsSync(enabled, limit, live.events, q.isSuccess, live.socketConnected)
 
-  const lastWorkingId = progressive.data?.last_working_ad_id ?? 0
-  const scanAnchorId = progressive.data?.scan_anchor_ad_id ?? 0
-  const lookaheadCount = progressive.data?.look_ahead_count ?? 20
-
-  const last = live.events[live.events.length - 1]
-  useEffect(() => {
-    if (
-      !last ||
-      (last.kind !== 'bolha_progressive_tick' && last.kind !== 'bolha_scout_done')
-    ) {
-      return
-    }
-    if (last.id === lastTickId.current) return
-    lastTickId.current = last.id
-    void qc.invalidateQueries({ queryKey: adminKeys.bolhaAds })
-    void qc.invalidateQueries({ queryKey: adminKeys.bolhaProgressive })
-  }, [last, qc])
+  const [timelineWindow, setTimelineWindow] = useState<TimelineWindowId>('1m')
+  const windowMs = timelineWindowMs(timelineWindow)
+  const timelineNow = useTimelineNow()
+  const { lastWorkingId, scanAnchorId, lookaheadCount } = pivot
 
   if (!enabled) return null
 
@@ -314,8 +385,8 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
             bolha_ads
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Top {limit} highest <code className="text-zinc-400">ad_id</code> values. Updates live via
-            scraper WebSocket; scrape log squares left→right (hover for details).
+            Top {limit} highest <code className="text-zinc-400">ad_id</code> values. Initial HTTP load,
+            then each scrape pushes over the scraper WebSocket. Scrape log timeline (now on the right).
           </p>
         </div>
         <p className="text-xs text-zinc-500">
@@ -325,7 +396,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
               live
             </span>
           ) : null}
-          {q.isFetching && !q.isLoading ? 'Refreshing… ' : null}
+          {q.isFetching && !q.isLoading ? 'Syncing… ' : null}
           <span className="font-mono text-zinc-300">
             {q.data == null ? '…' : `${q.data.length} rows`}
           </span>
@@ -348,8 +419,41 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
 
       {!q.isLoading && q.data && q.data.length > 0 && (
         <>
-          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-zinc-500">
-            <span className="uppercase tracking-wide">Scrape log</span>
+          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] text-zinc-500">
+            <span className="inline-flex items-center gap-2">
+              <span className="uppercase tracking-wide">Scrape log</span>
+              <span
+                className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5"
+                role="group"
+                aria-label="Timeline window"
+              >
+                {TIMELINE_WINDOWS.map((w) => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => setTimelineWindow(w.id)}
+                    className={`rounded-md px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide transition-colors ${
+                      timelineWindow === w.id
+                        ? 'bg-zinc-700 text-zinc-100'
+                        : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+                    }`}
+                    aria-pressed={timelineWindow === w.id}
+                  >
+                    {w.label}
+                  </button>
+                ))}
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-1 font-mono text-zinc-600">
+              {timelinePastLabel(windowMs)}
+              <span
+                className="relative inline-block h-1.5 w-16 rounded-sm bg-zinc-800 ring-1 ring-zinc-700"
+                aria-hidden
+              >
+                <span className="absolute right-0 top-0 bottom-0 w-px bg-indigo-400/80" />
+              </span>
+              now
+            </span>
             <span className="inline-flex items-center gap-1">
               <span className="size-2.5 rounded-sm bg-emerald-500" /> success
             </span>
@@ -390,7 +494,9 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
                   <th className="w-7 px-0 py-2" aria-label="Timeline" />
                   <th className="px-2 py-2 font-medium">ad_id</th>
                   <th className="px-2 py-2 font-medium">status</th>
-                  <th className="min-w-32 px-2 py-2 font-medium">scrape log</th>
+                  <th className="px-2 py-2 font-medium" style={{ width: SCRAPE_TIMELINE_WIDTH_PX }}>
+                    scrape log
+                  </th>
                   <th className="px-2 py-2 font-medium text-right">scrapes</th>
                 </tr>
               </thead>
@@ -406,7 +512,12 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
                   )
                   return (
                     <Fragment key={row.ad_id}>
-                      <AdDataRow row={row} highlight={highlight} />
+                      <AdDataRow
+                        row={row}
+                        highlight={highlight}
+                        now={timelineNow}
+                        windowMs={windowMs}
+                      />
                       {showGap ? <IdGapRow upperId={row.ad_id} lowerId={next.ad_id} /> : null}
                     </Fragment>
                   )

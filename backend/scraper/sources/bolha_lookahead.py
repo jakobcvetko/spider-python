@@ -153,6 +153,7 @@ class BolhaLookaheadSource:
                                 fetched_at=now,
                                 http_status=-1,
                                 detail=str(e),
+                                emit=emit,
                             )
                             await upsert_lookahead_state(
                                 db,
@@ -195,6 +196,7 @@ class BolhaLookaheadSource:
                             outcome=oc,
                             fetched_at=now,
                             http_status=http_st,
+                            emit=emit,
                         )
 
                         if kind == "active":
@@ -235,6 +237,7 @@ class BolhaLookaheadSource:
                                 inserted,
                             )
                             batch_resolved = True
+                            await db.commit()
                             break
 
                         if kind == "expired":
