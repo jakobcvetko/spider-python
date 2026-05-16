@@ -51,6 +51,20 @@ class _ScoutState:
     probe_count: int = 0
 
 
+async def run_bolha_scout(
+    db: AsyncSession,
+    shared: httpx.AsyncClient,
+    emit: EmitFn = None,
+) -> None:
+    """Gallop + binary search to refresh ``last_working_ad_id`` before lookahead."""
+    scout = BolhaScoutSource()
+    probe = _probe_client(shared)
+    try:
+        await scout._run_scout(db, probe, emit)
+    finally:
+        await probe.aclose()
+
+
 class BolhaScoutSource:
     name = "bolha.scout"
     listing_source = LISTING_SOURCE
@@ -60,12 +74,9 @@ class BolhaScoutSource:
         client: httpx.AsyncClient,
         emit: EmitFn = None,
     ) -> list[ScrapedItem]:
-        probe = _probe_client(client)
-        try:
-            async with SessionLocal() as db:
-                return await self._run_scout(db, probe, emit)
-        finally:
-            await probe.aclose()
+        async with SessionLocal() as db:
+            await run_bolha_scout(db, client, emit)
+        return []
 
     async def _run_scout(
         self,

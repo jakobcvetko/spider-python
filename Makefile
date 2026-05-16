@@ -8,7 +8,7 @@ MAKEFLAGS += --no-print-directory
 help: ## Show this help message
 	@printf "\n\033[1mSpider — dev commands\033[0m\n\n"
 	@awk 'BEGIN {FS = ":[^#]*## "} /^[a-zA-Z_-]+:[^#]*## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
-	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:lookahead" "Run Bolha lookahead scraper worker only"
+	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:lookahead" "Scout anchor, then run Bolha lookahead loop"
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:backfill" "Run Bolha backfill scraper worker only"
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:scout" "Find Bolha last_working id (one-shot) and exit"
 	@printf "\nExamples:\n  make install        # one-time setup\n  make dev            # run everything\n  make bolha:lookahead\n  make migration name=\"add foo column\"\n\n"
@@ -48,7 +48,7 @@ be: ## Run backend API only (FastAPI on :8000)
 fe: ## Run frontend only (Vite on :5173)
 	cd frontend && npm run dev -- --host 127.0.0.1 --port 5173
 
-bolha\:lookahead: ## Run Bolha lookahead scraper worker only
+bolha\:lookahead: ## Scout anchor, then run Bolha lookahead loop (long-running)
 	cd backend && uv run python -m scraper.worker --sources bolha.lookahead
 
 bolha\:backfill: ## Run Bolha backfill scraper worker only

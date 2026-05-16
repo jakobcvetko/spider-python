@@ -61,6 +61,9 @@ export const adminKeys = {
   bolhaAds: ['admin', 'bolha', 'ads'] as const,
 }
 
+/** Highest ad_id rows shown on the live bolha_ads registry table. */
+export const BOLHA_ADS_TOP_LIMIT = 50
+
 export function useAdminUsers(enabled: boolean) {
   return useQuery<AdminUser[]>({
     queryKey: adminKeys.users,
@@ -129,7 +132,12 @@ export type BolhaAdRow = {
   scrapes: BolhaAdScrapeEntry[]
 }
 
-export function useBolhaAds(enabled: boolean, limit = 500) {
+/** Bolha iAPI probe URL (works for any ad ID without knowing the slug). */
+export function bolhaAdUrl(adId: number): string {
+  return `https://iapi.bolha.com/avtomobili/progressive-scrape-oglas-${adId}`
+}
+
+export function useBolhaAds(enabled: boolean, limit = BOLHA_ADS_TOP_LIMIT) {
   return useQuery<BolhaAdRow[]>({
     queryKey: [...adminKeys.bolhaAds, limit] as const,
     queryFn: async () => {
@@ -139,7 +147,7 @@ export function useBolhaAds(enabled: boolean, limit = 500) {
       return data
     },
     enabled,
-    refetchInterval: enabled ? 500 : false,
+    refetchInterval: enabled ? 2_000 : false,
   })
 }
 

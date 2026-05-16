@@ -86,11 +86,11 @@ export default function AdminBolhaAdsPage() {
       </header>
 
       <p className="mb-4 text-sm text-zinc-400">
-        One row per bolha ad ID probed by lookahead or backfill. Status:{' '}
+        Live view of the 50 highest ad IDs probed by lookahead or backfill. Status:{' '}
         <span className="text-amber-200">pending</span> (empty slot),{' '}
         <span className="text-emerald-200">success</span> (active listing),{' '}
-        <span className="text-rose-200">removed</span> (expired on bolha). Scrape log shows each
-        attempt with elapsed time from first sighting.
+        <span className="text-rose-200">removed</span> (expired on bolha). Scrape log squares update
+        as each probe runs.
       </p>
 
       <BolhaAdsTable enabled={true} />

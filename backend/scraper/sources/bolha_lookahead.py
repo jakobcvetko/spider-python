@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import SessionLocal
 from scraper.base import upsert_items
+from scraper.sources.bolha_scout import run_bolha_scout
 from scraper.sources.bolha_common import (
     AD_PROBE_URL_TEMPLATE,
     EmitFn,
@@ -101,6 +102,15 @@ class BolhaLookaheadSource:
         probe = _probe_client(client)
         try:
             async with SessionLocal() as db:
+                log.info("bolha lookahead: running initial scout")
+                try:
+                    await run_bolha_scout(db, client, emit)
+                except RuntimeError:
+                    log.exception(
+                        "bolha lookahead: initial scout failed; "
+                        "continuing with stored anchor"
+                    )
+
                 while True:
                     meta = await get_meta(db)
                     anchor = int(meta.last_working_ad_id or 0)
