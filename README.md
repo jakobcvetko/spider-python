@@ -43,7 +43,7 @@ spider-python/
 ```bash
 cp .env.example .env
 make install     # installs backend (uv) and frontend (npm) deps
-make dev         # starts db, runs migrations, then runs backend + frontend + scraper
+make dev         # starts db, runs migrations, then runs backend + frontend (scrapers: separate)
 ```
 
 Open <http://127.0.0.1:5173>, register an account, and you're in.
@@ -54,10 +54,12 @@ Open <http://127.0.0.1:5173>, register an account, and you're in.
 |---|---|
 | `make help` | List all available commands |
 | `make install` | Install backend (uv sync) and frontend (npm install) deps |
-| `make dev` | Start Postgres, run migrations, then start backend + frontend + scraper with prefixed logs. Ctrl+C stops everything. |
+| `make dev` | Start Postgres, run migrations, then start backend + frontend with prefixed logs. Ctrl+C stops everything. Scrapers are separate (see Bolha rows below). |
 | `make be` | Run backend API only on `:8000` |
 | `make fe` | Run frontend dev server only on `:5173` |
-| `make scraper` | Run scraper worker only |
+| `make bolha:lookahead` | Run the Bolha lookahead scraper worker only |
+| `make bolha:backfill` | Run the Bolha backfill scraper worker only |
+| `make avtonet` | Placeholder for a future avto.net–only worker (not wired yet) |
 | `make migrate` | Apply pending Alembic migrations |
 | `make migration name="add foo column"` | Create a new auto-generated migration |
 | `make db-up` / `make db-down` | Start / stop Postgres container |
@@ -96,10 +98,11 @@ OpenAPI docs available at <http://127.0.0.1:8000/docs> when the backend is runni
 
 ## Scraper notes
 
-The scraper runs as a **separate process** (`scraper/worker.py`) and shares the
-backend's models/DB pool. APScheduler triggers each source at
-`SCRAPE_INTERVAL_SECONDS` (default **60s**) with per-source jitter, and dedupes
-by `(source, external_id)` via a Postgres unique constraint + `ON CONFLICT DO NOTHING`.
+Scrapers run as **separate processes** (`scraper/worker.py`, e.g. `make bolha:lookahead`).
+Each worker loads only the sources you pass with `--sources` (see the Makefile).
+APScheduler triggers each loaded source every `SCRAPE_INTERVAL_SECONDS` (default **60s**)
+with per-source jitter, and dedupes by `(source, external_id)` via Postgres
+`ON CONFLICT DO NOTHING`.
 
 The current avto.net / bolha.com fetchers will need real-world tuning:
 

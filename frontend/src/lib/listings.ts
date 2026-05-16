@@ -17,11 +17,11 @@ export type Listing = {
   created_at: string
 }
 
-export function useListings(enabled: boolean) {
+export function useListings(enabled: boolean, limit = 200) {
   return useQuery<Listing[]>({
-    queryKey: ['listings'],
+    queryKey: ['listings', limit],
     queryFn: async () => {
-      const { data } = await api.get<Listing[]>('/listings', { params: { limit: 50 } })
+      const { data } = await api.get<Listing[]>('/listings', { params: { limit } })
       return data
     },
     enabled,
@@ -29,7 +29,7 @@ export function useListings(enabled: boolean) {
   })
 }
 
-export function formatPrice(listing: Listing): string {
+export function formatPrice(listing: Pick<Listing, 'price_cents' | 'currency'>): string {
   if (listing.price_cents == null) return '—'
   const value = listing.price_cents / 100
   const currency = listing.currency || 'EUR'

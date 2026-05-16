@@ -2,12 +2,15 @@ SHELL := /bin/bash
 MAKEFLAGS += --no-print-directory
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev be fe scraper migrate migration db-up db-down db-shell db-reset stop
+.PHONY: help install dev be fe migrate migration db-up db-down db-shell db-reset stop \
+	bolha\:lookahead bolha\:backfill avtonet
 
 help: ## Show this help message
 	@printf "\n\033[1mSpider — dev commands\033[0m\n\n"
 	@awk 'BEGIN {FS = ":[^#]*## "} /^[a-zA-Z_-]+:[^#]*## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
-	@printf "\nExamples:\n  make install        # one-time setup\n  make dev            # run everything\n  make migration name=\"add foo column\"\n\n"
+	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:lookahead" "Run Bolha lookahead scraper worker only"
+	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:backfill" "Run Bolha backfill scraper worker only"
+	@printf "\nExamples:\n  make install        # one-time setup\n  make dev            # run everything\n  make bolha:lookahead\n  make migration name=\"add foo column\"\n\n"
 
 install: ## Install all dependencies (backend + frontend)
 	@echo "==> Installing backend dependencies (uv)..."
@@ -44,10 +47,16 @@ be: ## Run backend API only (FastAPI on :8000)
 fe: ## Run frontend only (Vite on :5173)
 	cd frontend && npm run dev -- --host 127.0.0.1 --port 5173
 
-scraper: ## Run scraper worker only (APScheduler)
-	cd backend && uv run python -m scraper.worker
+bolha\:lookahead: ## Run Bolha lookahead scraper worker only
+	cd backend && uv run python -m scraper.worker --sources bolha.lookahead
 
-dev: db-up migrate ## Run db + backend + frontend (scraper runs separately via `make scraper`)
+bolha\:backfill: ## Run Bolha backfill scraper worker only
+	cd backend && uv run python -m scraper.worker --sources bolha.backfill
+
+avtonet: ## Placeholder — avto.net-only worker (not wired yet)
+	@echo "Placeholder: avto.net standalone worker is not wired yet. Use \`make bolha:lookahead\` / \`make bolha:backfill\` for Bolha."
+
+dev: db-up migrate ## Run db + backend + frontend (scrapers: make bolha:lookahead / bolha:backfill)
 	@exec bash scripts/dev.sh
 
 stop: db-down ## Stop everything (docker)

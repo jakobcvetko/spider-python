@@ -46,3 +46,62 @@ class RunSourceResponse(BaseModel):
     queued: bool
     reason: str
     source: str
+
+
+class AdminListingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    source: str
+    external_id: str
+    url: str
+    title: str
+    price_cents: int | None
+    currency: str | None
+    location: str | None
+    image_url: str | None
+    year: int | None
+    mileage_km: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class BolhaProgressiveRow(BaseModel):
+    ad_id: int
+    zone: str
+    display_status: str
+    outcome: str | None
+    http_status: int | None
+    gtm_ad_status: str | None
+    fetched_at: datetime | None
+    inactive_age_seconds: float | None
+    detail: str | None
+    pipeline_status: str | None = None
+
+
+class BolhaProgressiveState(BaseModel):
+    look_ahead_count: int
+    last_working_ad_id: int
+    last_working_at: datetime | None
+    scan_anchor_ad_id: int
+    last_homepage_max: int
+    last_fetch_high_water: int
+    last_fetch_started_at: datetime | None
+    db_numeric_max: int
+    lookahead_rows: list[BolhaProgressiveRow]
+    pivot_row: BolhaProgressiveRow
+    tail_rows: list[BolhaProgressiveRow]
+
+
+class BolhaAdStateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    ad_id: int
+    status: str
+    last_lookahead_at: datetime | None
+    first_fallback_scrape_at: datetime | None
+    last_fallback_scrape_at: datetime | None
+    last_outcome: str | None
+    last_detail: str | None
+    created_at: datetime
+    updated_at: datetime

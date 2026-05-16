@@ -3,8 +3,9 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import AdminPage from './pages/AdminPage'
 import AdminAvtoNetPage from './pages/AdminAvtoNetPage'
+import AdminBolhaAdStatesPage from './pages/AdminBolhaAdStatesPage'
 import AdminBolhaPage from './pages/AdminBolhaPage'
-import DashboardPage from './pages/DashboardPage'
+import ListingsPage from './pages/ListingsPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 
@@ -17,7 +18,15 @@ export default function App() {
         path="/"
         element={
           <ProtectedRoute>
-            <DashboardPage />
+            <ListingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/bolha/ad-states"
+        element={
+          <ProtectedRoute>
+            <AdminBolhaAdStatesPage />
           </ProtectedRoute>
         }
       />

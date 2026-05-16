@@ -8,15 +8,18 @@ Also publishes realtime events (and listens for run-now commands) on Postgres
 live scraper activity.
 
 Run with:    uv run python -m scraper.worker
+            uv run python -m scraper.worker --sources bolha.lookahead
 """
 
 from __future__ import annotations
 
+from argparse import ArgumentParser
 import asyncio
 import json
 import logging
 import random
 import signal
+import sys
 import time
 
 import asyncpg
@@ -42,6 +45,44 @@ logging.basicConfig(
 log = logging.getLogger("scraper")
 
 HEARTBEAT_INTERVAL_SECONDS = 5
+
+BOLHA_EMIT_SOURCES = frozenset({"bolha.lookahead", "bolha.backfill"})
+
+
+def _listing_source_for(source: Source) -> str:
+    return getattr(source, "listing_source", None) or source.name
+
+
+def worker_sources_from_argv(argv: list[str] | None = None) -> list[Source]:
+    """Parse ``--sources`` (comma-separated). Empty / omitted means all ``ALL_SOURCES``."""
+    parser = ArgumentParser(
+        prog="python -m scraper.worker",
+        description="Spider scraper worker.",
+    )
+    parser.add_argument(
+        "--sources",
+        metavar="NAMES",
+        default="",
+        help=(
+            "Comma-separated source names, e.g. bolha.lookahead,bolha.backfill. "
+            "Default: run every registered source."
+        ),
+    )
+    args = parser.parse_args(argv)
+    raw = (args.sources or "").strip()
+    if not raw:
+        return list(ALL_SOURCES)
+    wanted = {p.strip() for p in raw.split(",") if p.strip()}
+    by_name = {s.name: s for s in ALL_SOURCES}
+    unknown = sorted(wanted - by_name.keys())
+    if unknown:
+        parser.error(
+            "unknown source(s): "
+            + ", ".join(unknown)
+            + "; known: "
+            + ", ".join(sorted(by_name))
+        )
+    return [s for s in ALL_SOURCES if s.name in wanted]
 
 
 class EventPublisher:
@@ -123,8 +164,12 @@ async def run_source(
     log.info("[%s] starting fetch", source.name)
     await publisher.emit(make_event("fetch_start", source=source.name, message="fetch starting"))
 
+    listing_src = _listing_source_for(source)
     try:
-        items = await source.fetch(client)
+        if source.name in BOLHA_EMIT_SOURCES:
+            items = await source.fetch(client, emit=publisher.emit)  # type: ignore[call-arg]
+        else:
+            items = await source.fetch(client)
     except Exception as e:  # noqa: BLE001
         log.exception("[%s] fetch raised", source.name)
         await publisher.emit(
@@ -179,7 +224,7 @@ async def run_source(
 
     async with SessionLocal() as db:
         try:
-            inserted = await upsert_items(db, source.name, items)
+            inserted = await upsert_items(db, listing_src, items)
         except Exception as e:  # noqa: BLE001
             log.exception("[%s] upsert failed", source.name)
             await publisher.emit(
@@ -268,6 +313,48 @@ async def commands_loop(
                 )
             )
             return
+        if source_name == "bolha.com":
+            matches = [
+                s
+                for s in sources
+                if getattr(s, "listing_source", None) == "bolha.com"
+            ]
+            if not matches:
+                known = [s.name for s in sources]
+                await publisher.emit(
+                    make_event(
+                        "debug_source_unknown",
+                        message=f"unknown source {source_name!r}; known: {known}",
+                        data={"source": source_name, "known": known},
+                    )
+                )
+                return
+            in_flight = True
+            t0 = time.perf_counter()
+            try:
+                for match in matches:
+                    await publisher.emit(
+                        make_event(
+                            "debug_source_start",
+                            source=match.name,
+                            message=f"admin bolha pipeline step ({reason})",
+                            data={"reason": reason, "pipeline": "bolha.com"},
+                        )
+                    )
+                    await run_source(match, client, publisher, source_holder, debug=True)
+                    elapsed_ms = round((time.perf_counter() - t0) * 1000)
+                    await publisher.emit(
+                        make_event(
+                            "debug_source_done",
+                            source=match.name,
+                            message=f"bolha pipeline step finished in {elapsed_ms}ms",
+                            data={"elapsed_ms": elapsed_ms},
+                        )
+                    )
+            finally:
+                in_flight = False
+            return
+
         match = next((s for s in sources if s.name == source_name), None)
         if match is None:
             known = [s.name for s in sources]
@@ -355,12 +442,15 @@ async def commands_loop(
                 continue
 
 
-async def main() -> None:
+async def main(sources: list[Source]) -> None:
     settings = get_settings()
     interval = settings.scrape_interval_seconds
 
-    log.info("starting scraper worker, interval=%ss, sources=%s",
-             interval, [s.name for s in ALL_SOURCES])
+    log.info(
+        "starting scraper worker, interval=%ss, sources=%s",
+        interval,
+        [s.name for s in sources],
+    )
 
     publisher = EventPublisher()
     await publisher.start()
@@ -382,7 +472,10 @@ async def main() -> None:
 
     scheduler = AsyncIOScheduler()
 
-    for source in ALL_SOURCES:
+    for source in sources:
+        if source.name == "bolha.lookahead":
+            # fetch() is an infinite loop with its own pacing; no interval job.
+            continue
         # add small per-source jitter so we don't hit both at the same instant
         jitter = random.randint(0, max(1, interval // 4))
         trigger = IntervalTrigger(seconds=interval, jitter=jitter)
@@ -404,12 +497,12 @@ async def main() -> None:
     background_tasks = [
         asyncio.create_task(heartbeat_loop(publisher, stop_event)),
         asyncio.create_task(
-            commands_loop(ALL_SOURCES, client, publisher, source_holder, stop_event)
+            commands_loop(sources, client, publisher, source_holder, stop_event)
         ),
         # immediate first run for each source
         asyncio.create_task(
             run_all_sources(
-                ALL_SOURCES, client, publisher, source_holder, reason="startup"
+                sources, client, publisher, source_holder, reason="startup"
             )
         ),
     ]
@@ -437,4 +530,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(worker_sources_from_argv(sys.argv[1:])))

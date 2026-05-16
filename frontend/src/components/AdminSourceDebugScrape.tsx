@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Button, Card, PageShell } from './ui'
 import {
   type ScraperEvent,
+  type ScraperLive,
   useRunSourceScrape,
   useScraperLive,
 } from '../lib/admin'
@@ -23,6 +24,7 @@ const KIND_COLORS: Record<string, string> = {
   debug_source_done: 'text-violet-200',
   debug_source_unknown: 'text-red-400',
   trigger_skipped: 'text-amber-300',
+  bolha_progressive_tick: 'text-fuchsia-300',
 }
 
 function fmtTs(ts: number): string {
@@ -50,6 +52,13 @@ function eventMatchesSource(ev: ScraperEvent, sourceName: string): boolean {
   ) {
     return true
   }
+  if (
+    ev.kind === 'bolha_progressive_tick' &&
+    sourceName === 'bolha.com' &&
+    (ev.source === 'bolha.lookahead' || ev.source === 'bolha.backfill')
+  ) {
+    return true
+  }
   return false
 }
 
@@ -65,12 +74,14 @@ type AdminSourceDebugScrapeProps = {
   sourceName: string
   title: string
   children: ReactNode
+  prependSlot?: ReactNode | ((ctx: { live: ScraperLive }) => ReactNode)
 }
 
 export function AdminSourceDebugScrape({
   sourceName,
   title,
   children,
+  prependSlot,
 }: AdminSourceDebugScrapeProps) {
   const navigate = useNavigate()
   const me = useMe()
@@ -115,7 +126,7 @@ export function AdminSourceDebugScrape({
           <p className="text-sm text-zinc-400">
             Your account doesn't have admin access.{' '}
             <Link to="/" className="text-indigo-300 hover:underline">
-              Back to dashboard
+              Back to listings
             </Link>
           </p>
         </Card>
@@ -151,13 +162,19 @@ export function AdminSourceDebugScrape({
             to="/"
             className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
           >
-            Dashboard
+            Listings
           </Link>
           <Button variant="ghost" loading={logout.isPending} onClick={onLogout}>
             Sign out
           </Button>
         </div>
       </header>
+
+      {prependSlot != null && (
+        <div className="mb-6">
+          {typeof prependSlot === 'function' ? prependSlot({ live }) : prependSlot}
+        </div>
+      )}
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <Card>

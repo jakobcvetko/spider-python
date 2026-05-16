@@ -36,9 +36,28 @@ export type RunSourceResponse = {
   source: string
 }
 
+export type AdminListing = {
+  id: string
+  source: string
+  external_id: string
+  url: string
+  title: string
+  price_cents: number | null
+  currency: string | null
+  location: string | null
+  image_url: string | null
+  year: number | null
+  mileage_km: number | null
+  created_at: string
+  updated_at: string
+}
+
 export const adminKeys = {
   users: ['admin', 'users'] as const,
   scraperStatus: ['admin', 'scraper', 'status'] as const,
+  listings: ['admin', 'listings'] as const,
+  bolhaProgressive: ['admin', 'bolha', 'progressive'] as const,
+  bolhaAdStates: ['admin', 'bolha', 'ad-states'] as const,
 }
 
 export function useAdminUsers(enabled: boolean) {
@@ -46,6 +65,85 @@ export function useAdminUsers(enabled: boolean) {
     queryKey: adminKeys.users,
     queryFn: async () => {
       const { data } = await api.get<AdminUser[]>('/admin/users')
+      return data
+    },
+    enabled,
+    refetchInterval: 30_000,
+  })
+}
+
+export type BolhaProgressiveRow = {
+  ad_id: number
+  zone: string
+  display_status: string
+  outcome: string | null
+  http_status: number | null
+  gtm_ad_status: string | null
+  fetched_at: string | null
+  inactive_age_seconds: number | null
+  detail: string | null
+  pipeline_status: string | null
+}
+
+export type BolhaProgressiveState = {
+  look_ahead_count: number
+  last_working_ad_id: number
+  last_working_at: string | null
+  scan_anchor_ad_id: number
+  last_homepage_max: number
+  last_fetch_high_water: number
+  last_fetch_started_at: string | null
+  db_numeric_max: number
+  lookahead_rows: BolhaProgressiveRow[]
+  pivot_row: BolhaProgressiveRow
+  tail_rows: BolhaProgressiveRow[]
+}
+
+export type BolhaAdStateRow = {
+  ad_id: number
+  status: string
+  last_lookahead_at: string | null
+  first_fallback_scrape_at: string | null
+  last_fallback_scrape_at: string | null
+  last_outcome: string | null
+  last_detail: string | null
+  created_at: string
+  updated_at: string
+}
+
+export function useBolhaAdStates(enabled: boolean, limit = 10_000) {
+  return useQuery<BolhaAdStateRow[]>({
+    queryKey: [...adminKeys.bolhaAdStates, limit] as const,
+    queryFn: async () => {
+      const { data } = await api.get<BolhaAdStateRow[]>('/admin/bolha/ad-states', {
+        params: { limit },
+      })
+      return data
+    },
+    enabled,
+    refetchInterval: enabled ? 500 : false,
+  })
+}
+
+export function useBolhaProgressiveState(enabled: boolean) {
+  return useQuery<BolhaProgressiveState>({
+    queryKey: adminKeys.bolhaProgressive,
+    queryFn: async () => {
+      const { data } = await api.get<BolhaProgressiveState>('/admin/bolha/progressive-state')
+      return data
+    },
+    enabled,
+    refetchInterval: enabled ? 500 : false,
+  })
+}
+
+export function useAdminListings(enabled: boolean) {
+  return useQuery<AdminListing[]>({
+    queryKey: adminKeys.listings,
+    queryFn: async () => {
+      const { data } = await api.get<AdminListing[]>('/admin/listings', {
+        params: { limit: 100 },
+      })
       return data
     },
     enabled,
@@ -75,6 +173,9 @@ export function useTriggerScraper() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.scraperStatus })
+      qc.invalidateQueries({ queryKey: adminKeys.listings })
+      qc.invalidateQueries({ queryKey: adminKeys.bolhaProgressive })
+      qc.invalidateQueries({ queryKey: adminKeys.bolhaAdStates })
     },
   })
 }
@@ -88,8 +189,17 @@ export function useRunSourceScrape() {
       })
       return data
     },
-    onSuccess: () => {
+    onSuccess: (_data, source) => {
       qc.invalidateQueries({ queryKey: adminKeys.scraperStatus })
+      qc.invalidateQueries({ queryKey: adminKeys.listings })
+      if (
+        source === 'bolha.com' ||
+        source === 'bolha.lookahead' ||
+        source === 'bolha.backfill'
+      ) {
+        qc.invalidateQueries({ queryKey: adminKeys.bolhaProgressive })
+        qc.invalidateQueries({ queryKey: adminKeys.bolhaAdStates })
+      }
     },
   })
 }

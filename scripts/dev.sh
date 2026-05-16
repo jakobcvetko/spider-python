@@ -3,8 +3,8 @@
 # Used by `make dev`. Ctrl+C (or SIGTERM) stops everything cleanly,
 # including grandchildren (uvicorn's reload worker, vite, etc.).
 #
-# The scraper worker is intentionally NOT started here — run it separately
-# with `make scraper` when you want live scraping.
+# Scraper workers are intentionally NOT started here — run e.g.
+# `make bolha:lookahead` and/or `make bolha:backfill` when you want live scraping.
 
 set -uo pipefail
 
@@ -46,7 +46,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM EXIT
 
 echo "==> Starting backend (:8000) and frontend (:5173)..."
-echo "==> Run the scraper separately with: make scraper"
+echo "==> Run scrapers separately, e.g.: make bolha:lookahead   make bolha:backfill"
 echo "==> Press Ctrl+C to stop all."
 echo
 
