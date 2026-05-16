@@ -2,13 +2,16 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AdminLayout } from './components/AdminLayout'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { UserLayout } from './components/UserLayout'
 import AdminPage from './pages/AdminPage'
 import AdminAvtoNetPage from './pages/AdminAvtoNetPage'
 import AdminBolhaPage from './pages/AdminBolhaPage'
 import AdminListingsPage from './pages/AdminListingsPage'
+import HomePage from './pages/HomePage'
 import ListingsPage from './pages/ListingsPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import ScrapersPage from './pages/ScrapersPage'
 
 export default function App() {
   return (
@@ -19,10 +22,14 @@ export default function App() {
         path="/"
         element={
           <ProtectedRoute>
-            <ListingsPage />
+            <UserLayout />
           </ProtectedRoute>
         }
-      />
+      >
+        <Route index element={<HomePage />} />
+        <Route path="scrapers" element={<ScrapersPage />} />
+        <Route path="listings" element={<ListingsPage />} />
+      </Route>
       <Route
         path="/admin"
         element={

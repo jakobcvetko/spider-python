@@ -10,24 +10,24 @@ import {
 import { getErrorMessage } from '../lib/auth'
 
 const KIND_COLORS: Record<string, string> = {
-  http_request: 'text-sky-300',
-  http_response: 'text-emerald-300',
-  fetch_start: 'text-indigo-300',
-  fetch_error: 'text-red-300',
-  parsed: 'text-zinc-300',
-  parsed_empty: 'text-amber-300',
-  parsed_preview: 'text-cyan-300',
-  upsert: 'text-emerald-200',
-  upsert_error: 'text-red-300',
-  cycle_start: 'text-violet-300',
-  cycle_done: 'text-violet-200',
+  http_request: 'text-sky-700',
+  http_response: 'text-emerald-700',
+  fetch_start: 'text-indigo-600',
+  fetch_error: 'text-red-700',
+  parsed: 'text-zinc-700',
+  parsed_empty: 'text-amber-700',
+  parsed_preview: 'text-cyan-700',
+  upsert: 'text-emerald-700',
+  upsert_error: 'text-red-700',
+  cycle_start: 'text-violet-700',
+  cycle_done: 'text-violet-700',
   heartbeat: 'text-zinc-500',
-  worker_started: 'text-emerald-300',
-  worker_stopped: 'text-amber-300',
-  trigger_skipped: 'text-amber-300',
-  debug_source_start: 'text-violet-300',
-  debug_source_done: 'text-violet-200',
-  debug_source_unknown: 'text-red-400',
+  worker_started: 'text-emerald-700',
+  worker_stopped: 'text-amber-700',
+  trigger_skipped: 'text-amber-700',
+  debug_source_start: 'text-violet-700',
+  debug_source_done: 'text-violet-700',
+  debug_source_unknown: 'text-red-600',
 }
 
 function fmtTs(ts: number): string {
@@ -80,13 +80,13 @@ export default function AdminPage() {
           <div className="mb-4 flex items-center gap-2">
             <span
               className={`inline-block h-2.5 w-2.5 rounded-full ${
-                scraperConnected ? 'bg-emerald-400 shadow-[0_0_8px] shadow-emerald-400/60' : 'bg-zinc-600'
+                scraperConnected ? 'bg-emerald-500 shadow-[0_0_8px] shadow-emerald-500/40' : 'bg-zinc-400'
               }`}
               aria-hidden
             />
             <span className="text-sm">
               Worker:{' '}
-              <span className={scraperConnected ? 'text-emerald-300' : 'text-zinc-400'}>
+              <span className={scraperConnected ? 'text-emerald-700' : 'text-zinc-400'}>
                 {scraperConnected ? 'connected' : 'offline'}
               </span>
             </span>
@@ -94,15 +94,15 @@ export default function AdminPage() {
 
           <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-xs text-zinc-400">
             <dt>Live socket</dt>
-            <dd className={live.socketConnected ? 'text-emerald-300' : 'text-amber-300'}>
+            <dd className={live.socketConnected ? 'text-emerald-700' : 'text-amber-700'}>
               {live.socketConnected ? 'connected' : 'reconnecting…'}
             </dd>
             <dt>Last heartbeat</dt>
-            <dd className="text-zinc-200">{fmtAge(status?.seconds_since_heartbeat ?? null)} ago</dd>
+            <dd className="text-zinc-800">{fmtAge(status?.seconds_since_heartbeat ?? null)} ago</dd>
             <dt>Interval</dt>
-            <dd className="text-zinc-200">{status?.interval_seconds ?? '—'}s</dd>
+            <dd className="text-zinc-800">{status?.interval_seconds ?? '—'}s</dd>
             <dt>Sources</dt>
-            <dd className="text-zinc-200">
+            <dd className="text-zinc-800">
               {status?.sources?.length ? status.sources.join(', ') : '—'}
             </dd>
           </dl>
@@ -117,7 +117,7 @@ export default function AdminPage() {
               {scraperConnected ? 'Trigger scrape now' : 'Worker offline'}
             </Button>
             {triggerError && (
-              <p className="text-xs text-red-400">{triggerError}</p>
+              <p className="text-xs text-red-600">{triggerError}</p>
             )}
             {trigger.isSuccess && !trigger.isPending && (
               <p className="text-xs text-zinc-500">Trigger sent.</p>
@@ -136,31 +136,31 @@ export default function AdminPage() {
                 type="button"
                 onClick={live.clearEvents}
                 disabled={events.length === 0}
-                className="rounded-md border border-zinc-700 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                className="rounded-md border border-zinc-300 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 Clear
               </button>
             </div>
           </div>
-          <div className="max-h-[420px] overflow-y-auto rounded-lg border border-zinc-800 bg-black/40 font-mono text-xs">
+          <div className="max-h-[420px] overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-100 font-mono text-xs">
             {events.length === 0 ? (
               <p className="p-4 text-zinc-500">
                 Waiting for scraper events…
               </p>
             ) : (
-              <ul className="divide-y divide-zinc-900">
+              <ul className="divide-y divide-zinc-100">
                 {events.map((ev) => (
                   <li key={ev.id} className="flex gap-3 px-3 py-1.5">
                     <span className="shrink-0 text-zinc-500">{fmtTs(ev.ts)}</span>
                     <span
-                      className={`shrink-0 w-32 truncate ${KIND_COLORS[ev.kind] || 'text-zinc-300'}`}
+                      className={`shrink-0 w-32 truncate ${KIND_COLORS[ev.kind] || 'text-zinc-700'}`}
                     >
                       {ev.kind}
                     </span>
                     <span className="shrink-0 w-20 truncate text-zinc-400">
                       {ev.source || '—'}
                     </span>
-                    <span className="truncate text-zinc-200">{eventLabel(ev)}</span>
+                    <span className="truncate text-zinc-800">{eventLabel(ev)}</span>
                   </li>
                 ))}
               </ul>
@@ -185,15 +185,15 @@ export default function AdminPage() {
         {users.isLoading ? (
           <p className="text-sm text-zinc-500">Loading users…</p>
         ) : users.error ? (
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-red-600">
             Failed to load users: {getErrorMessage(users.error)}
           </p>
         ) : !users.data || users.data.length === 0 ? (
           <p className="text-sm text-zinc-500">No users yet.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-zinc-800">
-            <table className="min-w-full divide-y divide-zinc-800 text-sm">
-              <thead className="bg-zinc-900/60 text-xs uppercase tracking-wide text-zinc-400">
+          <div className="overflow-x-auto rounded-lg border border-zinc-200">
+            <table className="min-w-full divide-y divide-zinc-200 text-sm">
+              <thead className="bg-zinc-100 text-xs uppercase tracking-wide text-zinc-400">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Email</th>
                   <th className="px-3 py-2 text-left font-medium">Display name</th>
@@ -201,16 +201,16 @@ export default function AdminPage() {
                   <th className="px-3 py-2 text-left font-medium">Joined</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-900">
+              <tbody className="divide-y divide-zinc-100">
                 {users.data.map((u) => (
-                  <tr key={u.id} className="hover:bg-zinc-900/40">
-                    <td className="px-3 py-2 text-zinc-100">{u.email}</td>
-                    <td className="px-3 py-2 text-zinc-300">
+                  <tr key={u.id} className="hover:bg-zinc-50">
+                    <td className="px-3 py-2 text-zinc-900">{u.email}</td>
+                    <td className="px-3 py-2 text-zinc-700">
                       {u.display_name || <span className="text-zinc-600">—</span>}
                     </td>
                     <td className="px-3 py-2">
                       {u.is_admin ? (
-                        <span className="rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-indigo-200">
+                        <span className="rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-indigo-700">
                           admin
                         </span>
                       ) : (

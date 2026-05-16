@@ -13,17 +13,17 @@ function fmtIso(iso: string | null): string {
 function statusTone(status: string): string {
   switch (status) {
     case 'lookahead':
-      return 'bg-sky-500/15 text-sky-200 ring-sky-500/35'
+      return 'bg-sky-50 text-sky-800 ring-sky-200'
     case 'pending_fallback':
-      return 'bg-amber-500/15 text-amber-200 ring-amber-500/35'
+      return 'bg-amber-50 text-amber-800 ring-amber-200'
     case 'fallback_warming':
-      return 'bg-violet-500/15 text-violet-200 ring-violet-500/35'
+      return 'bg-violet-50 text-violet-800 ring-violet-200'
     case 'timed_out':
-      return 'bg-orange-500/15 text-orange-200 ring-orange-500/35'
+      return 'bg-orange-50 text-orange-800 ring-orange-200'
     case 'expired':
-      return 'bg-rose-500/15 text-rose-200 ring-rose-500/35'
+      return 'bg-rose-50 text-rose-800 ring-rose-200'
     default:
-      return 'bg-zinc-600/30 text-zinc-300 ring-zinc-500/30'
+      return 'bg-zinc-100 text-zinc-600 ring-zinc-300'
   }
 }
 
@@ -38,7 +38,7 @@ export function BolhaAdStatesTable({ enabled }: BolhaAdStatesTableProps) {
 
   return (
     <Card className="mb-6">
-      <div className="mb-4 flex flex-col gap-1 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-4 flex flex-col gap-1 border-b border-zinc-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
             bolha_ad_states
@@ -50,14 +50,14 @@ export function BolhaAdStatesTable({ enabled }: BolhaAdStatesTableProps) {
         </div>
         <p className="text-xs text-zinc-500">
           {q.isFetching && !q.isLoading ? 'Refreshing… ' : null}
-          <span className="font-mono text-zinc-300">
+          <span className="font-mono text-zinc-700">
             {q.data == null ? '…' : `${q.data.length} rows`}
           </span>
         </p>
       </div>
 
       {q.error && (
-        <p className="mb-4 text-sm text-red-400">
+        <p className="mb-4 text-sm text-red-600">
           Failed to load ad states (is the latest migration applied?).
         </p>
       )}
@@ -69,9 +69,9 @@ export function BolhaAdStatesTable({ enabled }: BolhaAdStatesTableProps) {
       )}
 
       {!q.isLoading && q.data && q.data.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-zinc-800">
-          <table className="min-w-full divide-y divide-zinc-800 text-left text-xs">
-            <thead className="bg-zinc-900/80 text-[10px] uppercase tracking-wide text-zinc-500">
+        <div className="overflow-x-auto rounded-lg border border-zinc-200">
+          <table className="min-w-full divide-y divide-zinc-200 text-left text-xs">
+            <thead className="bg-zinc-100 text-[10px] uppercase tracking-wide text-zinc-500">
               <tr>
                 <th className="px-2 py-2 font-medium">ad_id</th>
                 <th className="px-2 py-2 font-medium">status</th>
@@ -84,10 +84,10 @@ export function BolhaAdStatesTable({ enabled }: BolhaAdStatesTableProps) {
                 <th className="px-2 py-2 font-medium">updated_at</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-900 font-mono text-[11px] text-zinc-300">
+            <tbody className="divide-y divide-zinc-100 font-mono text-[11px] text-zinc-700">
               {q.data.map((row) => (
-                <tr key={row.ad_id} className="hover:bg-zinc-900/50">
-                  <td className="whitespace-nowrap px-2 py-1.5 text-zinc-100">{row.ad_id}</td>
+                <tr key={row.ad_id} className="hover:bg-zinc-50">
+                  <td className="whitespace-nowrap px-2 py-1.5 text-zinc-900">{row.ad_id}</td>
                   <td className="px-2 py-1.5">
                     <span
                       className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${statusTone(row.status)}`}

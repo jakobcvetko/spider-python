@@ -28,15 +28,15 @@ export default function AdminListingsPage() {
         {adminListings.isLoading ? (
           <p className="text-sm text-zinc-500">Loading listings…</p>
         ) : adminListings.error ? (
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-red-600">
             Failed to load listings: {getErrorMessage(adminListings.error)}
           </p>
         ) : !adminListings.data || adminListings.data.length === 0 ? (
           <p className="text-sm text-zinc-500">No listings in the database yet.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-zinc-800">
-            <table className="min-w-full divide-y divide-zinc-800 text-sm">
-              <thead className="bg-zinc-900/60 text-xs uppercase tracking-wide text-zinc-400">
+          <div className="overflow-x-auto rounded-lg border border-zinc-200">
+            <table className="min-w-full divide-y divide-zinc-200 text-sm">
+              <thead className="bg-zinc-100 text-xs uppercase tracking-wide text-zinc-400">
                 <tr>
                   <th className="w-14 px-2 py-2 text-left font-medium" aria-hidden />
                   <th className="px-3 py-2 text-left font-medium">Title</th>
@@ -47,9 +47,9 @@ export default function AdminListingsPage() {
                   <th className="px-3 py-2 text-left font-medium">Updated</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-900">
+              <tbody className="divide-y divide-zinc-100">
                 {adminListings.data.map((row) => (
-                  <tr key={row.id} className="hover:bg-zinc-900/40">
+                  <tr key={row.id} className="hover:bg-zinc-50">
                     <td className="px-2 py-1.5 align-middle">
                       {row.image_url ? (
                         <img
@@ -59,7 +59,7 @@ export default function AdminListingsPage() {
                           loading="lazy"
                         />
                       ) : (
-                        <span className="block h-10 w-14 rounded bg-zinc-800" />
+                        <span className="block h-10 w-14 rounded bg-zinc-200" />
                       )}
                     </td>
                     <td className="max-w-[min(28rem,40vw)] px-3 py-2 align-middle">
@@ -67,7 +67,7 @@ export default function AdminListingsPage() {
                         href={row.url}
                         target="_blank"
                         rel="noreferrer noopener"
-                        className="line-clamp-2 font-medium text-indigo-300 hover:underline"
+                        className="line-clamp-2 font-medium text-indigo-600 hover:underline"
                       >
                         {row.title}
                       </a>
@@ -75,10 +75,10 @@ export default function AdminListingsPage() {
                         {row.external_id}
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 align-middle text-zinc-300">
+                    <td className="whitespace-nowrap px-3 py-2 align-middle text-zinc-700">
                       {row.source}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 align-middle text-zinc-200">
+                    <td className="whitespace-nowrap px-3 py-2 align-middle text-zinc-800">
                       {formatPrice(row)}
                     </td>
                     <td className="max-w-[10rem] truncate px-3 py-2 align-middle text-zinc-400">

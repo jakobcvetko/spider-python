@@ -9,21 +9,21 @@ import {
 import { getErrorMessage } from '../lib/auth'
 
 const KIND_COLORS: Record<string, string> = {
-  http_request: 'text-sky-300',
-  http_response: 'text-emerald-300',
-  fetch_start: 'text-indigo-300',
-  fetch_error: 'text-red-300',
-  parsed: 'text-zinc-300',
-  parsed_empty: 'text-amber-300',
-  parsed_preview: 'text-cyan-300',
-  upsert: 'text-emerald-200',
-  upsert_error: 'text-red-300',
-  debug_source_start: 'text-violet-300',
-  debug_source_done: 'text-violet-200',
-  debug_source_unknown: 'text-red-400',
-  trigger_skipped: 'text-amber-300',
-  bolha_progressive_tick: 'text-fuchsia-300',
-  bolha_scout_done: 'text-sky-300',
+  http_request: 'text-sky-700',
+  http_response: 'text-emerald-700',
+  fetch_start: 'text-indigo-600',
+  fetch_error: 'text-red-700',
+  parsed: 'text-zinc-700',
+  parsed_empty: 'text-amber-700',
+  parsed_preview: 'text-cyan-700',
+  upsert: 'text-emerald-700',
+  upsert_error: 'text-red-700',
+  debug_source_start: 'text-violet-700',
+  debug_source_done: 'text-violet-700',
+  debug_source_unknown: 'text-red-600',
+  trigger_skipped: 'text-amber-700',
+  bolha_progressive_tick: 'text-fuchsia-700',
+  bolha_scout_done: 'text-sky-700',
 }
 
 function fmtTs(ts: number): string {
@@ -122,12 +122,12 @@ export function AdminSourceDebugScrape({
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
             How this scrape works
           </h2>
-          <div className="space-y-3 text-sm leading-relaxed text-zinc-300">{children}</div>
-          <div className="mt-4 rounded-lg border border-zinc-800 bg-black/30 p-3 text-xs text-zinc-400">
-            <p className="font-medium text-zinc-300">Live log</p>
+          <div className="space-y-3 text-sm leading-relaxed text-zinc-700">{children}</div>
+          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-400">
+            <p className="font-medium text-zinc-700">Live log</p>
             <p className="mt-1">
               The worker runs in a separate process. This page listens on the same admin WebSocket
-              and shows only events tagged with <code className="text-zinc-200">{sourceName}</code>{' '}
+              and shows only events tagged with <code className="text-zinc-800">{sourceName}</code>{' '}
               (plus “skipped” notices if you queue a run while another scrape is already running).
               HTTP hooks emit one line per request and response so you can see redirects and status
               codes in order.
@@ -140,7 +140,7 @@ export function AdminSourceDebugScrape({
             Run once
           </h2>
           <p className="mb-4 text-sm text-zinc-400">
-            Sends a <code className="text-zinc-200">run_source</code> command to the worker. It runs
+            Sends a <code className="text-zinc-800">run_source</code> command to the worker. It runs
             a single pass for this source with extra debug events (empty-parse hint, parsed row
             preview when items exist). The scheduler and full-cycle trigger are unchanged.
           </p>
@@ -158,7 +158,7 @@ export function AdminSourceDebugScrape({
               {live.socketConnected ? 'log stream connected' : 'log stream reconnecting…'}
             </span>
           </div>
-          {runError && <p className="mt-2 text-xs text-red-400">{runError}</p>}
+          {runError && <p className="mt-2 text-xs text-red-600">{runError}</p>}
           {runSource.isSuccess && !runSource.isPending && (
             <p className="mt-2 text-xs text-zinc-500">Command queued — watch the log below.</p>
           )}
@@ -176,30 +176,30 @@ export function AdminSourceDebugScrape({
               type="button"
               onClick={live.clearEvents}
               disabled={events.length === 0}
-              className="rounded-md border border-zinc-700 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+              className="rounded-md border border-zinc-300 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
             >
               Clear
             </button>
           </div>
         </div>
-        <div className="max-h-[min(520px,55vh)] overflow-y-auto rounded-lg border border-zinc-800 bg-black/40 font-mono text-xs">
+        <div className="max-h-[min(520px,55vh)] overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-100 font-mono text-xs">
           {events.length === 0 ? (
             <p className="p-4 text-zinc-500">
               No events for this source yet. Connect the worker, then press “Scrape once”, or wait
               for the scheduled job.
             </p>
           ) : (
-            <ul className="divide-y divide-zinc-900">
+            <ul className="divide-y divide-zinc-100">
               {events.map((ev) => (
                 <li key={ev.id} className="px-3 py-2">
                   <div className="flex flex-wrap gap-x-3 gap-y-1">
                     <span className="shrink-0 text-zinc-500">{fmtTs(ev.ts)}</span>
                     <span
-                      className={`shrink-0 font-semibold ${KIND_COLORS[ev.kind] || 'text-zinc-300'}`}
+                      className={`shrink-0 font-semibold ${KIND_COLORS[ev.kind] || 'text-zinc-700'}`}
                     >
                       {ev.kind}
                     </span>
-                    <span className="min-w-0 flex-1 wrap-break-word text-zinc-200">
+                    <span className="min-w-0 flex-1 wrap-break-word text-zinc-800">
                       {eventLabel(ev)}
                     </span>
                   </div>
@@ -207,7 +207,7 @@ export function AdminSourceDebugScrape({
                     ev.data &&
                     Array.isArray(ev.data.items) &&
                     ev.data.items.length > 0 && (
-                      <pre className="mt-2 max-h-48 overflow-auto rounded border border-zinc-800/80 bg-zinc-950/80 p-2 text-[11px] leading-snug text-zinc-400">
+                      <pre className="mt-2 max-h-48 overflow-auto rounded border border-zinc-200/80 bg-zinc-50/80 p-2 text-[11px] leading-snug text-zinc-400">
                         {JSON.stringify(ev.data.items, null, 2)}
                       </pre>
                     )}

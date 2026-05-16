@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 
 import { AppLogo } from './AppLogo'
 import { DashboardSwitchLink } from './DashboardSwitchLink'
-import { Card, PageShell } from './ui'
+import { PageShell } from './ui'
 import { useLogout, useMe } from '../lib/auth'
 
 const NAV_LINK =
@@ -13,15 +13,10 @@ function navLinkClass(isActive: boolean) {
   return `${NAV_LINK} ${isActive ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-600'}`
 }
 
-function isBolhaPath(pathname: string) {
-  return pathname === '/admin/bolha' || pathname.startsWith('/admin/bolha/')
-}
-
-export function AdminLayout() {
+export function UserLayout() {
   const me = useMe()
   const logout = useLogout()
   const navigate = useNavigate()
-  const location = useLocation()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
@@ -55,30 +50,14 @@ export function AdminLayout() {
     )
   }
 
-  if (!isAdmin) {
-    return (
-      <PageShell>
-        <Card>
-          <h1 className="mb-2 text-lg font-semibold">Admins only</h1>
-          <p className="text-sm text-zinc-600">
-            Your account doesn't have admin access.{' '}
-            <Link to="/" className="text-indigo-600 hover:underline">
-              Back to home
-            </Link>
-          </p>
-        </Card>
-      </PageShell>
-    )
-  }
-
   return (
     <PageShell>
       <nav className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-200 pb-4">
         <div className="flex flex-wrap items-center gap-1">
-          <AppLogo to="/admin" variant="admin" onClick={closeUserMenu} />
+          <AppLogo to="/" onClick={closeUserMenu} />
           <span className="mx-1 hidden h-5 w-px bg-zinc-200 sm:block" aria-hidden />
           <NavLink
-            to="/admin"
+            to="/"
             end
             onClick={closeUserMenu}
             className={({ isActive }) => navLinkClass(isActive)}
@@ -86,25 +65,18 @@ export function AdminLayout() {
             Home
           </NavLink>
           <NavLink
-            to="/admin/listings"
+            to="/scrapers"
+            onClick={closeUserMenu}
+            className={({ isActive }) => navLinkClass(isActive)}
+          >
+            Scrapers
+          </NavLink>
+          <NavLink
+            to="/listings"
             onClick={closeUserMenu}
             className={({ isActive }) => navLinkClass(isActive)}
           >
             Listings
-          </NavLink>
-          <NavLink
-            to="/admin/bolha"
-            onClick={closeUserMenu}
-            className={() => navLinkClass(isBolhaPath(location.pathname))}
-          >
-            Bolha
-          </NavLink>
-          <NavLink
-            to="/admin/avtonet"
-            onClick={closeUserMenu}
-            className={({ isActive }) => navLinkClass(isActive)}
-          >
-            Avtonet
           </NavLink>
         </div>
 
@@ -116,7 +88,7 @@ export function AdminLayout() {
             aria-expanded={userMenuOpen}
             aria-haspopup="menu"
           >
-            <span className="max-w-[12rem] truncate">{displayName}</span>
+            <span className="max-w-48 truncate">{displayName}</span>
             <svg
               className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
               viewBox="0 0 20 20"
@@ -135,13 +107,19 @@ export function AdminLayout() {
               role="menu"
               className="absolute right-0 z-20 mt-1 min-w-[8.5rem] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg"
             >
-              <DashboardSwitchLink to="/" target="user" onClick={closeUserMenu} />
+              {isAdmin && (
+                <DashboardSwitchLink
+                  to="/admin"
+                  target="admin"
+                  onClick={closeUserMenu}
+                />
+              )}
               <button
                 type="button"
                 role="menuitem"
                 disabled={logout.isPending}
                 onClick={onLogout}
-                className="block w-full px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                className="block w-full px-4 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-100 disabled:opacity-50"
               >
                 {logout.isPending ? 'Signing out…' : 'Sign out'}
               </button>

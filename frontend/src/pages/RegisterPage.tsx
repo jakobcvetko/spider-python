@@ -66,14 +66,14 @@ export default function RegisterPage() {
               onChange={(e) => setPassword(e.target.value)}
             />
             <p className="text-xs text-zinc-500">Use at least 8 characters.</p>
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-red-600">{error}</p>}
             <Button type="submit" loading={register.isPending} className="w-full">
               Create account
             </Button>
           </form>
           <p className="mt-6 text-sm text-zinc-400">
             Already have an account?{' '}
-            <Link to="/login" className="text-indigo-400 hover:text-indigo-300">
+            <Link to="/login" className="text-indigo-600 hover:text-indigo-700">
               Sign in
             </Link>
           </p>

@@ -57,14 +57,14 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-red-600">{error}</p>}
             <Button type="submit" loading={login.isPending} className="w-full">
               Sign in
             </Button>
           </form>
           <p className="mt-6 text-sm text-zinc-400">
             New here?{' '}
-            <Link to="/register" className="text-indigo-400 hover:text-indigo-300">
+            <Link to="/register" className="text-indigo-600 hover:text-indigo-700">
               Create an account
             </Link>
           </p>

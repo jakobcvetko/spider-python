@@ -36,13 +36,13 @@ function timelinePastLabel(ms: number): string {
 function statusTone(status: string): string {
   switch (status) {
     case 'pending':
-      return 'bg-amber-500/15 text-amber-200 ring-amber-500/35'
+      return 'bg-amber-50 text-amber-800 ring-amber-200'
     case 'success':
-      return 'bg-emerald-500/15 text-emerald-200 ring-emerald-500/35'
+      return 'bg-emerald-50 text-emerald-800 ring-emerald-200'
     case 'removed':
-      return 'bg-rose-500/15 text-rose-200 ring-rose-500/35'
+      return 'bg-rose-50 text-rose-800 ring-rose-200'
     default:
-      return 'bg-zinc-600/30 text-zinc-300 ring-zinc-500/30'
+      return 'bg-zinc-100 text-zinc-600 ring-zinc-300'
   }
 }
 
@@ -57,7 +57,7 @@ function scrapeSquareFill(result: string): string {
     case 'error':
       return 'bg-red-500'
     default:
-      return 'bg-zinc-600'
+      return 'bg-zinc-400'
   }
 }
 
@@ -147,21 +147,21 @@ function rowClassName(highlight: RowHighlight): string {
   if (highlight === 'lookahead') {
     return 'bg-sky-500/10 ring-1 ring-inset ring-sky-500/35'
   }
-  return 'hover:bg-zinc-900/50'
+  return 'hover:bg-zinc-50'
 }
 
 function timelineNodeClassName(highlight: RowHighlight): string {
   if (highlight === 'last-id') {
-    return 'relative z-10 mx-auto block size-2 rounded-full bg-indigo-400 ring-2 ring-indigo-950'
+    return 'relative z-10 mx-auto block size-2 rounded-full bg-indigo-400 ring-2 ring-white'
   }
   if (highlight === 'lookahead') {
-    return 'relative z-10 mx-auto block size-2 rounded-full bg-sky-400/90 ring-2 ring-sky-950'
+    return 'relative z-10 mx-auto block size-2 rounded-full bg-sky-400/90 ring-2 ring-white'
   }
-  return 'relative z-10 mx-auto block size-2 rounded-full bg-zinc-500 ring-2 ring-zinc-950'
+  return 'relative z-10 mx-auto block size-2 rounded-full bg-zinc-500 ring-2 ring-white'
 }
 
 function timelineRailClassName(): string {
-  return 'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-700'
+  return 'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-300'
 }
 
 function TimelineNode({ highlight }: { highlight: RowHighlight }) {
@@ -176,17 +176,17 @@ function TimelineNode({ highlight }: { highlight: RowHighlight }) {
 function GapTimelineIcon({ severity }: { severity: GapSeverity }) {
   const shell =
     severity === 'small'
-      ? 'bg-zinc-800 ring-zinc-600/80'
+      ? 'bg-zinc-100 ring-zinc-300'
       : severity === 'medium'
-        ? 'bg-amber-950 ring-amber-500/50'
-        : 'bg-orange-950 ring-orange-500/60'
+        ? 'bg-amber-50 ring-amber-300'
+        : 'bg-orange-50 ring-orange-300'
 
   const ink =
     severity === 'small'
-      ? 'text-zinc-400'
+      ? 'text-zinc-500'
       : severity === 'medium'
-        ? 'text-amber-400'
-        : 'text-orange-400'
+        ? 'text-amber-600'
+        : 'text-orange-600'
 
   if (severity === 'small') {
     return (
@@ -278,7 +278,7 @@ function AdDataRow({
           href={bolhaAdUrl(row.ad_id)}
           target="_blank"
           rel="noreferrer noopener"
-          className="font-semibold text-indigo-300 hover:underline"
+          className="font-semibold text-indigo-600 hover:underline"
         >
           {row.ad_id}
         </a>
@@ -321,12 +321,12 @@ function ScrapeLogTimeline({
 
   return (
     <div
-      className="relative h-6 shrink-0 rounded bg-zinc-950/50 ring-1 ring-zinc-800/80"
+      className="relative h-6 shrink-0 rounded bg-zinc-100 ring-1 ring-zinc-200"
       style={{ width: SCRAPE_TIMELINE_WIDTH_PX }}
       role="img"
       aria-label={`Scrape attempts in the last ${windowLabel}; now on the right`}
     >
-      <span className="pointer-events-none absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-zinc-700" />
+      <span className="pointer-events-none absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-zinc-300" />
       <span
         className="pointer-events-none absolute top-1/2 h-2 w-px -translate-y-1/2 bg-zinc-600"
         style={{ left: '50%' }}
@@ -349,7 +349,7 @@ function ScrapeLogTimeline({
           >
             <span
               title={scrapeTooltip(s)}
-              className={`block size-2 -translate-x-1/2 rounded-full ${scrapeSquareFill(s.result)} ring-1 ring-zinc-950/50`}
+              className={`block size-2 -translate-x-1/2 rounded-full ${scrapeSquareFill(s.result)} ring-1 ring-white/50`}
               style={{ marginTop: yOffset - 4 }}
             />
           </span>
@@ -379,7 +379,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
 
   return (
     <Card>
-      <div className="mb-4 flex flex-col gap-1 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-4 flex flex-col gap-1 border-b border-zinc-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
             bolha_ads
@@ -397,14 +397,14 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
             </span>
           ) : null}
           {q.isFetching && !q.isLoading ? 'Syncing… ' : null}
-          <span className="font-mono text-zinc-300">
+          <span className="font-mono text-zinc-700">
             {q.data == null ? '…' : `${q.data.length} rows`}
           </span>
         </p>
       </div>
 
       {q.error && (
-        <p className="mb-4 text-sm text-red-400">
+        <p className="mb-4 text-sm text-red-600">
           Failed to load bolha ads (is the latest migration applied?).
         </p>
       )}
@@ -423,7 +423,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
             <span className="inline-flex items-center gap-2">
               <span className="uppercase tracking-wide">Scrape log</span>
               <span
-                className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5"
+                className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50/80 p-0.5"
                 role="group"
                 aria-label="Timeline window"
               >
@@ -434,8 +434,8 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
                     onClick={() => setTimelineWindow(w.id)}
                     className={`rounded-md px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide transition-colors ${
                       timelineWindow === w.id
-                        ? 'bg-zinc-700 text-zinc-100'
-                        : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+                        ? 'bg-zinc-300 text-zinc-900'
+                        : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700'
                     }`}
                     aria-pressed={timelineWindow === w.id}
                   >
@@ -447,7 +447,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
             <span className="inline-flex items-center gap-1 font-mono text-zinc-600">
               {timelinePastLabel(windowMs)}
               <span
-                className="relative inline-block h-1.5 w-16 rounded-sm bg-zinc-800 ring-1 ring-zinc-700"
+                className="relative inline-block h-1.5 w-16 rounded-sm bg-zinc-200 ring-1 ring-zinc-300"
                 aria-hidden
               >
                 <span className="absolute right-0 top-0 bottom-0 w-px bg-indigo-400/80" />
@@ -487,9 +487,9 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
             </span>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-zinc-800">
-            <table className="min-w-full divide-y divide-zinc-800 text-left text-xs">
-              <thead className="bg-zinc-900/80 text-[10px] uppercase tracking-wide text-zinc-500">
+          <div className="overflow-x-auto rounded-lg border border-zinc-200">
+            <table className="min-w-full divide-y divide-zinc-200 text-left text-xs">
+              <thead className="bg-zinc-100 text-[10px] uppercase tracking-wide text-zinc-500">
                 <tr>
                   <th className="w-7 px-0 py-2" aria-label="Timeline" />
                   <th className="px-2 py-2 font-medium">ad_id</th>
@@ -500,7 +500,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
                   <th className="px-2 py-2 font-medium text-right">scrapes</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-900 font-mono text-[11px] text-zinc-300">
+              <tbody className="divide-y divide-zinc-100 font-mono text-[11px] text-zinc-700">
                 {q.data.map((row, i) => {
                   const next = q.data![i + 1]
                   const showGap = next != null && idGapCount(row.ad_id, next.ad_id) > 0

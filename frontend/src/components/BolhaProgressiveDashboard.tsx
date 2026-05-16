@@ -13,21 +13,21 @@ import { Card } from './ui'
 function statusPill(status: string): string {
   switch (status) {
     case 'successful':
-      return 'bg-emerald-500/20 text-emerald-200 ring-emerald-500/40'
+      return 'bg-emerald-50 text-emerald-800 ring-emerald-200'
     case 'not_yet_created':
-      return 'bg-zinc-500/20 text-zinc-200 ring-zinc-500/40'
+      return 'bg-zinc-100 text-zinc-700 ring-zinc-300'
     case 'expired':
-      return 'bg-rose-500/15 text-rose-200 ring-rose-500/35'
+      return 'bg-rose-50 text-rose-800 ring-rose-200'
     case 'in_progress':
-      return 'bg-amber-500/20 text-amber-200 ring-amber-500/40'
+      return 'bg-amber-50 text-amber-800 ring-amber-200'
     case 'timed_out':
-      return 'bg-orange-500/20 text-orange-200 ring-orange-500/40'
+      return 'bg-orange-50 text-orange-800 ring-orange-200'
     case 'inactive':
-      return 'bg-zinc-600/40 text-zinc-300 ring-zinc-500/30'
+      return 'bg-zinc-100 text-zinc-600 ring-zinc-300'
     case 'error':
-      return 'bg-red-500/20 text-red-200 ring-red-500/40'
+      return 'bg-red-50 text-red-800 ring-red-200'
     default:
-      return 'bg-zinc-800 text-zinc-500 ring-zinc-700'
+      return 'bg-zinc-100 text-zinc-500 ring-zinc-300'
   }
 }
 
@@ -52,9 +52,9 @@ function ProbeTable({
   return (
     <div className="mb-6">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</h3>
-      <div className="overflow-x-auto rounded-lg border border-zinc-800">
-        <table className="min-w-full divide-y divide-zinc-800 text-left text-xs">
-          <thead className="bg-zinc-900/80 text-[10px] uppercase tracking-wide text-zinc-500">
+      <div className="overflow-x-auto rounded-lg border border-zinc-200">
+        <table className="min-w-full divide-y divide-zinc-200 text-left text-xs">
+          <thead className="bg-zinc-100 text-[10px] uppercase tracking-wide text-zinc-500">
             <tr>
               <th className="px-2 py-2 font-medium">Ad ID</th>
               <th className="px-2 py-2 font-medium">Status</th>
@@ -66,7 +66,7 @@ function ProbeTable({
               <th className="px-2 py-2 font-medium">Pipeline</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-900 font-mono text-[11px] text-zinc-300">
+          <tbody className="divide-y divide-zinc-100 font-mono text-[11px] text-zinc-700">
             {rows.map((r) => {
               const hi = highlightAdId != null && r.ad_id === highlightAdId
               return (
@@ -75,10 +75,10 @@ function ProbeTable({
                   className={
                     hi
                       ? 'bg-indigo-500/15 ring-1 ring-inset ring-indigo-400/50'
-                      : 'hover:bg-zinc-900/50'
+                      : 'hover:bg-zinc-50'
                   }
                 >
-                  <td className="px-2 py-1.5 text-zinc-100">{r.ad_id}</td>
+                  <td className="px-2 py-1.5 text-zinc-900">{r.ad_id}</td>
                   <td className="px-2 py-1.5">
                     <span
                       className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${statusPill(r.display_status)}`}
@@ -140,12 +140,12 @@ export function BolhaProgressiveDashboard({ enabled, liveEvents }: BolhaProgress
 
   return (
     <Card className="mb-6">
-      <div className="mb-4 flex flex-col gap-2 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-4 flex flex-col gap-2 border-b border-zinc-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
             Progressive cycle
           </h2>
-          <p className="mt-1 text-3xl font-semibold tracking-tight text-indigo-200">
+          <p className="mt-1 text-3xl font-semibold tracking-tight text-indigo-600">
             {lw > 0 ? lw : '—'}
             <span className="ml-2 text-sm font-normal text-zinc-500">
               {lw > 0 ? 'last confirmed id (active or expired)' : 'no confirmed id stored yet'}
@@ -158,25 +158,25 @@ export function BolhaProgressiveDashboard({ enabled, liveEvents }: BolhaProgress
         <div className="text-right text-xs text-zinc-500">
           <p>
             Scan anchor max(hp, high-water, db):{' '}
-            <span className="font-mono text-zinc-300">{d?.scan_anchor_ad_id ?? '—'}</span>
+            <span className="font-mono text-zinc-700">{d?.scan_anchor_ad_id ?? '—'}</span>
           </p>
           <p>
             Homepage max:{' '}
-            <span className="font-mono text-zinc-300">{d?.last_homepage_max ?? '—'}</span> · DB
-            max: <span className="font-mono text-zinc-300">{d?.db_numeric_max ?? '—'}</span>
+            <span className="font-mono text-zinc-700">{d?.last_homepage_max ?? '—'}</span> · DB
+            max: <span className="font-mono text-zinc-700">{d?.db_numeric_max ?? '—'}</span>
           </p>
           <p>
             LOOKAHEAD_ADS:{' '}
-            <span className="font-mono text-zinc-300">{d?.look_ahead_count ?? '—'}</span>
+            <span className="font-mono text-zinc-700">{d?.look_ahead_count ?? '—'}</span>
           </p>
           {progressive.isFetching && (
-            <p className="mt-1 text-indigo-300/80">Refreshing…</p>
+            <p className="mt-1 text-indigo-600/80">Refreshing…</p>
           )}
         </div>
       </div>
 
       {progressive.error && (
-        <p className="mb-4 text-sm text-red-400">
+        <p className="mb-4 text-sm text-red-600">
           Failed to load progressive state (is the latest migration applied?).
         </p>
       )}
