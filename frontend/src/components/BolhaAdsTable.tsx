@@ -6,11 +6,13 @@ import {
   useBolhaAds,
   useBolhaAdsWsSync,
   useBolhaPivotFromWs,
+  useMatchBolhaAd,
   useScraperLive,
   type BolhaAdRow,
   type BolhaAdScrapeEntry,
 } from '../lib/admin'
-import { Card } from './ui'
+import { getErrorMessage } from '../lib/auth'
+import { Button, Card } from './ui'
 
 const SCRAPE_TIMELINE_WIDTH_PX = 384
 const SCRAPE_TIMELINE_TICK_MS = 200
@@ -250,7 +252,7 @@ function IdGapRow({ upperId, lowerId }: { upperId: number; lowerId: number }) {
           <GapTimelineIcon severity={severity} />
         </div>
       </td>
-      <td colSpan={4} className="px-2 py-0 align-middle">
+      <td colSpan={5} className="px-2 py-0 align-middle">
         <span className={`font-mono text-[10px] tabular-nums ${gapCountTextTone(severity)}`}>
           {count === 1 ? '1 ID missing' : `${count.toLocaleString()} IDs missing`}
         </span>
@@ -264,11 +266,19 @@ function AdDataRow({
   highlight,
   now,
   windowMs,
+  onMatch,
+  matchLoading,
+  matchResult,
+  matchError,
 }: {
   row: BolhaAdRow
   highlight: RowHighlight
   now: number
   windowMs: number
+  onMatch?: (adId: number) => void
+  matchLoading?: boolean
+  matchResult?: string | null
+  matchError?: string | null
 }) {
   return (
     <tr className={rowClassName(highlight)}>
@@ -294,6 +304,30 @@ function AdDataRow({
         <ScrapeLogTimeline scrapes={row.scrapes} now={now} windowMs={windowMs} />
       </td>
       <td className="whitespace-nowrap px-2 py-1.5 text-right text-zinc-500">{row.scrapes.length}</td>
+      <td className="whitespace-nowrap px-2 py-1.5 text-right">
+        {row.status === 'success' && onMatch ? (
+          <div className="flex flex-col items-end gap-0.5">
+            <Button
+              type="button"
+              variant="ghost"
+              className="px-2 py-1 text-[10px] font-medium"
+              loading={matchLoading}
+              onClick={() => onMatch(row.ad_id)}
+            >
+              Match
+            </Button>
+            {matchError ? (
+              <span className="max-w-[8rem] truncate text-[10px] text-red-600" title={matchError}>
+                {matchError}
+              </span>
+            ) : matchResult ? (
+              <span className="text-[10px] text-emerald-700">{matchResult}</span>
+            ) : null}
+          </div>
+        ) : (
+          <span className="text-zinc-300">—</span>
+        )}
+      </td>
     </tr>
   )
 }
@@ -369,8 +403,41 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
   const live = useScraperLive(enabled)
   const pivot = useBolhaPivotFromWs(enabled, live.events)
   useBolhaAdsWsSync(enabled, limit, live.events, q.isSuccess, live.socketConnected)
+  const matchBolha = useMatchBolhaAd()
 
   const [timelineWindow, setTimelineWindow] = useState<TimelineWindowId>('1m')
+  const [matchingAdId, setMatchingAdId] = useState<number | null>(null)
+  const [matchFeedback, setMatchFeedback] = useState<
+    Record<number, { ok?: string; err?: string }>
+  >({})
+
+  const runMatch = (adId: number) => {
+    setMatchingAdId(adId)
+    setMatchFeedback((prev) => {
+      const next = { ...prev }
+      delete next[adId]
+      return next
+    })
+    matchBolha.mutate(adId, {
+      onSuccess: (data) => {
+        const n = data.matches_created
+        setMatchFeedback((prev) => ({
+          ...prev,
+          [adId]: {
+            ok:
+              n === 0 ? '0 matches' : n === 1 ? '1 match' : `${n} matches`,
+          },
+        }))
+      },
+      onError: (err) => {
+        setMatchFeedback((prev) => ({
+          ...prev,
+          [adId]: { err: getErrorMessage(err) },
+        }))
+      },
+      onSettled: () => setMatchingAdId(null),
+    })
+  }
   const windowMs = timelineWindowMs(timelineWindow)
   const timelineNow = useTimelineNow()
   const { lastWorkingId, scanAnchorId, lookaheadCount } = pivot
@@ -498,6 +565,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
                     scrape log
                   </th>
                   <th className="px-2 py-2 font-medium text-right">scrapes</th>
+                  <th className="px-2 py-2 font-medium text-right">matcher</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 font-mono text-[11px] text-zinc-700">
@@ -517,6 +585,10 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
                         highlight={highlight}
                         now={timelineNow}
                         windowMs={windowMs}
+                        onMatch={runMatch}
+                        matchLoading={matchingAdId === row.ad_id && matchBolha.isPending}
+                        matchResult={matchFeedback[row.ad_id]?.ok ?? null}
+                        matchError={matchFeedback[row.ad_id]?.err ?? null}
                       />
                       {showGap ? <IdGapRow upperId={row.ad_id} lowerId={next.ad_id} /> : null}
                     </Fragment>

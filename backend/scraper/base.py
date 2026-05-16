@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,3 +79,17 @@ async def upsert_items(
 
 def item_to_dict(item: ScrapedItem) -> dict[str, Any]:
     return asdict(item)
+
+
+async def get_listing_id(
+    db: AsyncSession,
+    source: str,
+    external_id: str,
+) -> uuid.UUID | None:
+    result = await db.execute(
+        select(Listing.id).where(
+            Listing.source == source,
+            Listing.external_id == external_id,
+        )
+    )
+    return result.scalar_one_or_none()

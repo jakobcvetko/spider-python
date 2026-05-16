@@ -110,6 +110,12 @@ class BolhaAdOut(BaseModel):
     scrapes: list[BolhaAdScrapeEntryOut]
 
 
+class BolhaAdMatchResponse(BaseModel):
+    ad_id: int
+    listing_id: uuid.UUID
+    matches_created: int
+
+
 class BolhaAdStateOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

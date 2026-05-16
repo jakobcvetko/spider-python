@@ -24,9 +24,11 @@ from app.models import (
     Listing,
     User,
 )
+from app.models.bolha_ad import AD_STATUS_SUCCESS
 from app.schemas.admin import (
     AdminListingOut,
     AdminUserOut,
+    BolhaAdMatchResponse,
     BolhaAdOut,
     BolhaAdStateOut,
     BolhaProgressiveRow,
@@ -37,6 +39,7 @@ from app.schemas.admin import (
     TriggerResponse,
 )
 from app.scraper_events import get_event_bus, make_event
+from matcher.match import BOLHA_SOURCE, match_listing
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 settings = get_settings()
@@ -308,6 +311,44 @@ async def bolha_ads(
     )
     rows = (await db.execute(stmt)).scalars().all()
     return [_bolha_ad_to_out(r) for r in rows]
+
+
+@router.post("/bolha/ads/{ad_id}/match", response_model=BolhaAdMatchResponse)
+async def run_matcher_for_bolha_ad(
+    ad_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> BolhaAdMatchResponse:
+    ad_row = await db.get(BolhaAd, ad_id)
+    if ad_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad not found")
+    if ad_row.status != AD_STATUS_SUCCESS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Matcher only applies to ads with status success",
+        )
+
+    listing_id = (
+        await db.execute(
+            select(Listing.id).where(
+                Listing.source == BOLHA_SOURCE,
+                Listing.external_id == str(ad_id),
+            )
+        )
+    ).scalar_one_or_none()
+    if listing_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No listing row for this ad (run lookahead/backfill first)",
+        )
+
+    matches_created = await match_listing(db, listing_id)
+    await db.commit()
+    return BolhaAdMatchResponse(
+        ad_id=ad_id,
+        listing_id=listing_id,
+        matches_created=matches_created,
+    )
 
 
 @router.get("/bolha/ad-states", response_model=list[BolhaAdStateOut])

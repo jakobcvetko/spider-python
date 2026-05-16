@@ -9,7 +9,8 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import SessionLocal
-from scraper.base import upsert_items
+from app.matcher_jobs import enqueue_matcher_job
+from scraper.base import get_listing_id, upsert_items
 from scraper.sources.bolha_scout import run_bolha_scout
 from scraper.sources.bolha_common import (
     AD_PROBE_URL_TEMPLATE,
@@ -226,6 +227,18 @@ class BolhaLookaheadSource:
                                     ad_id,
                                 )
                                 inserted = 0
+
+                            listing_id = await get_listing_id(
+                                db, LISTING_SOURCE, str(ad_id)
+                            )
+                            if listing_id is not None:
+                                try:
+                                    await enqueue_matcher_job(db, listing_id)
+                                except Exception:
+                                    log.exception(
+                                        "bolha lookahead: matcher enqueue failed ad_id=%s",
+                                        ad_id,
+                                    )
 
                             self._cached_db_max = max(
                                 self._cached_db_max or 0, ad_id

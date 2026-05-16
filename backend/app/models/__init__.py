@@ -5,6 +5,8 @@ from app.models.bolha_ad_state import BolhaAdState
 from app.models.bolha_inactive_ad import BolhaInactiveAd
 from app.models.bolha_scrape_meta import BolhaScrapeMeta
 from app.models.listing import Listing
+from app.models.scraper import Scraper
+from app.models.scraper_match import ScraperMatch
 from app.models.session import Session
 from app.models.user import User
 
@@ -12,6 +14,8 @@ __all__ = [
     "Base",
     "User",
     "Session",
+    "Scraper",
+    "ScraperMatch",
     "Listing",
     "BolhaInactiveAd",
     "BolhaScrapeMeta",

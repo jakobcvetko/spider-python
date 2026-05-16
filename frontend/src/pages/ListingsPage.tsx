@@ -13,7 +13,8 @@ export default function ListingsPage() {
       <header className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight">Listings</h1>
         <p className="text-sm text-zinc-400">
-          Bolha ads by ad ID (highest first); then others by time added. Auto-refresh every 30s.
+          Listings that matched your scrapers (title contains the scraper name). Auto-refresh
+          every 30s.
         </p>
       </header>
 
@@ -21,10 +22,10 @@ export default function ListingsPage() {
         <div className="mb-3 flex items-end justify-between">
           <div>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
-              Scraped ads
+              Your matches
             </h2>
             <p className="text-sm text-zinc-500">
-              Up to {LISTINGS_LIMIT} rows from avto.net and bolha.com.
+              Up to {LISTINGS_LIMIT} listings matched by your scrapers.
             </p>
           </div>
           {listings.isFetching && (
@@ -38,9 +39,9 @@ export default function ListingsPage() {
           <p className="text-sm text-red-600">Failed to load listings.</p>
         ) : !listings.data || listings.data.length === 0 ? (
           <p className="text-sm text-zinc-500">
-            No listings yet. Start a scraper worker (e.g.{' '}
-            <code className="text-zinc-700">make bolha:lookahead</code> or{' '}
-            <code className="text-zinc-700">make bolha:backfill</code>) to begin collecting items.
+            No matches yet. Create a scraper with a name that appears in listing titles, then run{' '}
+            <code className="text-zinc-700">make bolha:lookahead</code> and{' '}
+            <code className="text-zinc-700">make matcher</code>.
           </p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-zinc-200">
