@@ -29,6 +29,10 @@ AD_PROBE_URL_TEMPLATE = (
 
 LOOKAHEAD_ADS = 20
 LOOKAHEAD_TIMEOUT_SECONDS = 5
+LOOKAHEAD_PROBE_TIMEOUT_SECONDS = 15.0
+# Re-scan listings / homepage occasionally so meta stays aligned with backfill or manual inserts.
+LOOKAHEAD_HIGH_WATER_REFRESH_BATCHES = 50
+LOOKAHEAD_HOMEPAGE_REFRESH_BATCHES = 120
 FALLBACK_CYCLE_PAUSE_SECONDS = 10
 FALLBACK_TIMEOUT_SECONDS = 60
 AD_TIMEOUT_SECONDS = FALLBACK_TIMEOUT_SECONDS
@@ -138,6 +142,16 @@ async def meta_set_last_working(db: AsyncSession, ad_id: int) -> None:
         update(BolhaScrapeMeta)
         .where(BolhaScrapeMeta.id == 1)
         .values(last_working_ad_id=ad_id, last_working_at=now)
+    )
+    await db.flush()
+
+
+async def meta_set_homepage_max(db: AsyncSession, hp_max: int) -> None:
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        update(BolhaScrapeMeta)
+        .where(BolhaScrapeMeta.id == 1)
+        .values(last_homepage_max=hp_max, last_homepage_fetched_at=now)
     )
     await db.flush()
 
