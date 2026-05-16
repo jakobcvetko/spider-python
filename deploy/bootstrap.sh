@@ -35,10 +35,10 @@ if [[ ! -f "${APP_DIR}/.env" ]]; then
 SPIDER_IMAGE=ghcr.io/YOUR_GITHUB_USER/spider-python
 IMAGE_TAG=latest
 POSTGRES_PASSWORD=change-me-long-random
-DOMAIN=spider.example.com
+DOMAIN=new.spider.si
 ACME_EMAIL=you@example.com
 SESSION_COOKIE_SECURE=true
-CORS_ORIGINS=https://spider.example.com
+CORS_ORIGINS=https://new.spider.si
 EOF
   fi
   chown "${DEPLOY_USER}:${DEPLOY_USER}" "${APP_DIR}/.env"

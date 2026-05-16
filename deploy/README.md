@@ -51,10 +51,10 @@ Required `.env` values:
 |----------|---------|
 | `SPIDER_IMAGE` | `ghcr.io/youruser/spider-python` (lowercase) |
 | `POSTGRES_PASSWORD` | long random string |
-| `DOMAIN` | `spider.example.com` |
+| `DOMAIN` | `new.spider.si` (staging; switch to `spider.si` when ready) |
 | `ACME_EMAIL` | your email (Let's Encrypt) |
 | `SESSION_COOKIE_SECURE` | `true` |
-| `CORS_ORIGINS` | `https://spider.example.com` |
+| `CORS_ORIGINS` | `https://new.spider.si` |
 
 Open firewall: **22**, **80**, **443**.
 
