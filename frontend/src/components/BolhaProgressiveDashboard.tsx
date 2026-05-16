@@ -120,7 +120,12 @@ export function BolhaProgressiveDashboard({ enabled, liveEvents }: BolhaProgress
 
   const last = liveEvents[liveEvents.length - 1]
   useEffect(() => {
-    if (!last || last.kind !== 'bolha_progressive_tick') return
+    if (
+      !last ||
+      (last.kind !== 'bolha_progressive_tick' && last.kind !== 'bolha_scout_done')
+    ) {
+      return
+    }
     if (last.id === lastTickId.current) return
     lastTickId.current = last.id
     void qc.invalidateQueries({ queryKey: adminKeys.bolhaProgressive })

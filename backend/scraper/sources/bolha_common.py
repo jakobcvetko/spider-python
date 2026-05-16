@@ -12,7 +12,16 @@ from sqlalchemy import delete, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import BolhaAdProbe, BolhaAdState, BolhaScrapeMeta
+from app.models import BolhaAd, BolhaAdProbe, BolhaAdState, BolhaScrapeMeta
+from app.models.bolha_ad import (
+    AD_STATUS_PENDING,
+    AD_STATUS_REMOVED,
+    AD_STATUS_SUCCESS,
+    SCRAPE_RESULT_EMPTY,
+    SCRAPE_RESULT_ERROR,
+    SCRAPE_RESULT_REMOVED,
+    SCRAPE_RESULT_SUCCESS,
+)
 from app.scraper_events import make_event
 from scraper.base import ScrapedItem
 
@@ -38,6 +47,16 @@ FALLBACK_TIMEOUT_SECONDS = 60
 AD_TIMEOUT_SECONDS = FALLBACK_TIMEOUT_SECONDS
 
 MAX_FALLBACK_IDS_PER_FETCH = 40
+
+SCOUT_GALLOP_STEP = 1000
+SCOUT_REFINE_STEP = 100
+SCOUT_PROBE_DELAY_SECONDS = 0.2
+SCOUT_PROBE_TIMEOUT_SECONDS = LOOKAHEAD_PROBE_TIMEOUT_SECONDS
+SCOUT_MAX_PROBES = 500
+SCOUT_MAX_ID_SPAN = 2_000_000
+SCOUT_HTTP_RETRIES = 3
+
+ProbeKind = Literal["active", "not_yet_created", "expired", "not_found", "bad_status"]
 
 STATUS_LOOKAHEAD = "lookahead"
 STATUS_PENDING_FALLBACK = "pending_fallback"
@@ -169,6 +188,86 @@ async def max_numeric_listing_id(db: AsyncSession) -> int:
     )
     v = r.scalar_one_or_none()
     return int(v) if v is not None else 0
+
+
+def scrape_result_from_outcome(outcome: str) -> str:
+    if outcome == "active":
+        return SCRAPE_RESULT_SUCCESS
+    if outcome == "expired":
+        return SCRAPE_RESULT_REMOVED
+    if outcome == "not_yet_created":
+        return SCRAPE_RESULT_EMPTY
+    return SCRAPE_RESULT_ERROR
+
+
+def ad_status_from_scrape_result(result: str) -> str:
+    if result == SCRAPE_RESULT_SUCCESS:
+        return AD_STATUS_SUCCESS
+    if result == SCRAPE_RESULT_REMOVED:
+        return AD_STATUS_REMOVED
+    return AD_STATUS_PENDING
+
+
+def merge_ad_status(current: str, new: str) -> str:
+    rank = {AD_STATUS_PENDING: 0, AD_STATUS_REMOVED: 1, AD_STATUS_SUCCESS: 2}
+    if rank.get(new, 0) > rank.get(current, 0):
+        return new
+    return current
+
+
+async def record_bolha_ad_scrape(
+    db: AsyncSession,
+    ad_id: int,
+    *,
+    source: str,
+    result: str,
+    fetched_at: datetime,
+    http_status: int | None = None,
+    detail: str | None = None,
+) -> None:
+    """Append a scrape attempt to bolha_ads and update ad-level status."""
+    entry: dict[str, Any] = {
+        "at": fetched_at.isoformat(),
+        "source": source,
+        "result": result,
+    }
+    if http_status is not None:
+        entry["http_status"] = http_status
+    if detail:
+        entry["detail"] = detail[:500]
+
+    new_status = ad_status_from_scrape_result(result)
+    row = await db.get(BolhaAd, ad_id)
+    if row is None:
+        db.add(BolhaAd(ad_id=ad_id, status=new_status, scrape_log=[entry]))
+    else:
+        log_entries = list(row.scrape_log or [])
+        log_entries.append(entry)
+        row.scrape_log = log_entries
+        row.status = merge_ad_status(row.status, new_status)
+    await db.flush()
+
+
+async def record_bolha_ad_scrape_from_outcome(
+    db: AsyncSession,
+    ad_id: int,
+    *,
+    source: str,
+    outcome: str,
+    fetched_at: datetime,
+    http_status: int | None = None,
+    detail: str | None = None,
+) -> None:
+    result = scrape_result_from_outcome(outcome)
+    await record_bolha_ad_scrape(
+        db,
+        ad_id,
+        source=source,
+        result=result,
+        fetched_at=fetched_at,
+        http_status=http_status,
+        detail=detail,
+    )
 
 
 async def upsert_probe(
@@ -386,3 +485,95 @@ def outcome_from_class(
         "not_found": "not_found",
         "bad_status": "bad_http_status",
     }[kind]
+
+
+def is_known_probe_kind(kind: ProbeKind) -> bool:
+    return kind in ("active", "expired")
+
+
+async def probe_ad_id(
+    client: httpx.AsyncClient,
+    db: AsyncSession,
+    ad_id: int,
+    *,
+    source_name: str,
+    emit: EmitFn = None,
+    last_working_ad_id: int = 0,
+    high_water: int = 0,
+) -> ProbeKind | None:
+    """Probe one ad ID; persist probe/scrape rows. Returns None after unrecoverable HTTP errors."""
+    url = AD_PROBE_URL_TEMPLATE.format(ad_id=ad_id)
+    now = datetime.now(timezone.utc)
+    last_exc: Exception | None = None
+
+    for attempt in range(SCOUT_HTTP_RETRIES):
+        try:
+            resp = await client.get(url)
+        except httpx.HTTPError as e:
+            last_exc = e
+            if attempt + 1 < SCOUT_HTTP_RETRIES:
+                continue
+            log.warning(
+                "bolha probe %s failed after %s attempts: %s",
+                ad_id,
+                SCOUT_HTTP_RETRIES,
+                e,
+            )
+            await upsert_probe(
+                db,
+                ad_id,
+                fetched_at=now,
+                http_status=-1,
+                gtm_ad_status=None,
+                outcome="http_error",
+                detail=str(e)[:500],
+            )
+            await record_bolha_ad_scrape(
+                db,
+                ad_id,
+                source=source_name,
+                result=SCRAPE_RESULT_ERROR,
+                fetched_at=now,
+                http_status=-1,
+                detail=str(e),
+            )
+            return None
+
+        html = resp.text
+        kind, gtm, _detail, http_st = classify_probe_response(resp, html, ad_id=ad_id)
+        oc = outcome_from_class(kind)
+        await upsert_probe(
+            db,
+            ad_id,
+            fetched_at=now,
+            http_status=http_st,
+            gtm_ad_status=gtm,
+            outcome=oc,
+            detail=None,
+        )
+        await record_bolha_ad_scrape_from_outcome(
+            db,
+            ad_id,
+            source=source_name,
+            outcome=oc,
+            fetched_at=now,
+            http_status=http_st,
+        )
+        await emit_progress_tick(
+            emit,
+            scraper_name=source_name,
+            ad_id=ad_id,
+            last_working_ad_id=last_working_ad_id,
+            high_water=high_water,
+            outcome=oc,
+            http_status=http_st,
+            gtm_ad_status=gtm,
+        )
+        if kind in ("not_found", "bad_status") and attempt + 1 < SCOUT_HTTP_RETRIES:
+            last_exc = None
+            continue
+        return kind
+
+    if last_exc is not None:
+        return None
+    return "bad_status"

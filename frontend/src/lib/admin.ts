@@ -58,6 +58,7 @@ export const adminKeys = {
   listings: ['admin', 'listings'] as const,
   bolhaProgressive: ['admin', 'bolha', 'progressive'] as const,
   bolhaAdStates: ['admin', 'bolha', 'ad-states'] as const,
+  bolhaAds: ['admin', 'bolha', 'ads'] as const,
 }
 
 export function useAdminUsers(enabled: boolean) {
@@ -109,6 +110,37 @@ export type BolhaAdStateRow = {
   last_detail: string | null
   created_at: string
   updated_at: string
+}
+
+export type BolhaAdScrapeEntry = {
+  offset_seconds: number
+  at: string
+  source: string
+  result: string
+  http_status: number | null
+  detail: string | null
+}
+
+export type BolhaAdRow = {
+  ad_id: number
+  status: string
+  created_at: string
+  updated_at: string
+  scrapes: BolhaAdScrapeEntry[]
+}
+
+export function useBolhaAds(enabled: boolean, limit = 500) {
+  return useQuery<BolhaAdRow[]>({
+    queryKey: [...adminKeys.bolhaAds, limit] as const,
+    queryFn: async () => {
+      const { data } = await api.get<BolhaAdRow[]>('/admin/bolha/ads', {
+        params: { limit },
+      })
+      return data
+    },
+    enabled,
+    refetchInterval: enabled ? 500 : false,
+  })
 }
 
 export function useBolhaAdStates(enabled: boolean, limit = 10_000) {
@@ -176,6 +208,7 @@ export function useTriggerScraper() {
       qc.invalidateQueries({ queryKey: adminKeys.listings })
       qc.invalidateQueries({ queryKey: adminKeys.bolhaProgressive })
       qc.invalidateQueries({ queryKey: adminKeys.bolhaAdStates })
+      qc.invalidateQueries({ queryKey: adminKeys.bolhaAds })
     },
   })
 }
@@ -195,10 +228,12 @@ export function useRunSourceScrape() {
       if (
         source === 'bolha.com' ||
         source === 'bolha.lookahead' ||
-        source === 'bolha.backfill'
+        source === 'bolha.backfill' ||
+        source === 'bolha.scout'
       ) {
         qc.invalidateQueries({ queryKey: adminKeys.bolhaProgressive })
         qc.invalidateQueries({ queryKey: adminKeys.bolhaAdStates })
+        qc.invalidateQueries({ queryKey: adminKeys.bolhaAds })
       }
     },
   })

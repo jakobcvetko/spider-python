@@ -26,6 +26,8 @@ from scraper.sources.bolha_common import (
     get_meta,
     outcome_from_class,
     parse_active_detail,
+    record_bolha_ad_scrape,
+    record_bolha_ad_scrape_from_outcome,
     upsert_probe,
 )
 
@@ -79,6 +81,15 @@ class BolhaBackfillSource:
                         outcome="http_error",
                         detail=str(e)[:500],
                     )
+                    await record_bolha_ad_scrape(
+                        db,
+                        ad_id,
+                        source=self.name,
+                        result="error",
+                        fetched_at=now,
+                        http_status=-1,
+                        detail=str(e),
+                    )
                     await emit_progress_tick(
                         emit,
                         scraper_name=self.name,
@@ -105,6 +116,14 @@ class BolhaBackfillSource:
                     gtm_ad_status=gtm,
                     outcome=oc,
                     detail=None,
+                )
+                await record_bolha_ad_scrape_from_outcome(
+                    db,
+                    ad_id,
+                    source=self.name,
+                    outcome=oc,
+                    fetched_at=now,
+                    http_status=http_st,
                 )
                 await emit_progress_tick(
                     emit,

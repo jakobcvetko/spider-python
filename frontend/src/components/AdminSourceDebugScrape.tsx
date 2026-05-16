@@ -25,6 +25,7 @@ const KIND_COLORS: Record<string, string> = {
   debug_source_unknown: 'text-red-400',
   trigger_skipped: 'text-amber-300',
   bolha_progressive_tick: 'text-fuchsia-300',
+  bolha_scout_done: 'text-sky-300',
 }
 
 function fmtTs(ts: number): string {
@@ -55,8 +56,13 @@ function eventMatchesSource(ev: ScraperEvent, sourceName: string): boolean {
   if (
     ev.kind === 'bolha_progressive_tick' &&
     sourceName === 'bolha.com' &&
-    (ev.source === 'bolha.lookahead' || ev.source === 'bolha.backfill')
+    (ev.source === 'bolha.lookahead' ||
+      ev.source === 'bolha.backfill' ||
+      ev.source === 'bolha.scout')
   ) {
+    return true
+  }
+  if (ev.kind === 'bolha_scout_done' && sourceName === 'bolha.com') {
     return true
   }
   return false

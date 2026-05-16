@@ -1,4 +1,5 @@
 from app.models.base import Base
+from app.models.bolha_ad import BolhaAd
 from app.models.bolha_ad_probe import BolhaAdProbe
 from app.models.bolha_ad_state import BolhaAdState
 from app.models.bolha_inactive_ad import BolhaInactiveAd
@@ -16,4 +17,5 @@ __all__ = [
     "BolhaScrapeMeta",
     "BolhaAdProbe",
     "BolhaAdState",
+    "BolhaAd",
 ]

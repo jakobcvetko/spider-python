@@ -3,13 +3,14 @@ MAKEFLAGS += --no-print-directory
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev be fe migrate migration db-up db-down db-shell db-reset stop \
-	bolha\:lookahead bolha\:backfill avtonet
+	bolha\:lookahead bolha\:backfill bolha\:scout avtonet
 
 help: ## Show this help message
 	@printf "\n\033[1mSpider — dev commands\033[0m\n\n"
 	@awk 'BEGIN {FS = ":[^#]*## "} /^[a-zA-Z_-]+:[^#]*## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:lookahead" "Run Bolha lookahead scraper worker only"
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:backfill" "Run Bolha backfill scraper worker only"
+	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:scout" "Find Bolha last_working id (one-shot) and exit"
 	@printf "\nExamples:\n  make install        # one-time setup\n  make dev            # run everything\n  make bolha:lookahead\n  make migration name=\"add foo column\"\n\n"
 
 install: ## Install all dependencies (backend + frontend)
@@ -52,6 +53,9 @@ bolha\:lookahead: ## Run Bolha lookahead scraper worker only
 
 bolha\:backfill: ## Run Bolha backfill scraper worker only
 	cd backend && uv run python -m scraper.worker --sources bolha.backfill
+
+bolha\:scout: ## Find Bolha last_working id via gallop+binary search (exits when done)
+	cd backend && uv run python -m scraper.worker --sources bolha.scout
 
 avtonet: ## Placeholder — avto.net-only worker (not wired yet)
 	@echo "Placeholder: avto.net standalone worker is not wired yet. Use \`make bolha:lookahead\` / \`make bolha:backfill\` for Bolha."

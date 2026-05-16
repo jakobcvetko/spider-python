@@ -46,7 +46,9 @@ log = logging.getLogger("scraper")
 
 HEARTBEAT_INTERVAL_SECONDS = 5
 
-BOLHA_EMIT_SOURCES = frozenset({"bolha.lookahead", "bolha.backfill"})
+BOLHA_EMIT_SOURCES = frozenset({"bolha.lookahead", "bolha.backfill", "bolha.scout"})
+
+_NO_INTERVAL_SOURCES = frozenset({"bolha.lookahead", "bolha.scout"})
 
 
 def _listing_source_for(source: Source) -> str:
@@ -64,7 +66,7 @@ def worker_sources_from_argv(argv: list[str] | None = None) -> list[Source]:
         metavar="NAMES",
         default="",
         help=(
-            "Comma-separated source names, e.g. bolha.lookahead,bolha.backfill. "
+            "Comma-separated source names, e.g. bolha.lookahead,bolha.scout. "
             "Default: run every registered source."
         ),
     )
@@ -470,11 +472,25 @@ async def main(sources: list[Source]) -> None:
         event_hooks=_make_http_event_hooks(publisher, source_holder),
     )
 
+    scout_only = len(sources) == 1 and sources[0].name == "bolha.scout"
+    if scout_only:
+        try:
+            await run_all_sources(
+                sources, client, publisher, source_holder, reason="startup"
+            )
+        finally:
+            await publisher.emit(
+                make_event("worker_stopped", message="scraper worker stopped")
+            )
+            await client.aclose()
+            await publisher.stop()
+        log.info("bolha scout finished; worker exiting")
+        return
+
     scheduler = AsyncIOScheduler()
 
     for source in sources:
-        if source.name == "bolha.lookahead":
-            # fetch() is an infinite loop with its own pacing; no interval job.
+        if source.name in _NO_INTERVAL_SOURCES:
             continue
         # add small per-source jitter so we don't hit both at the same instant
         jitter = random.randint(0, max(1, interval // 4))

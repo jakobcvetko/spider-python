@@ -12,11 +12,16 @@ export default function AdminBolhaPage() {
         <>
           <BolhaProgressiveDashboard enabled={true} liveEvents={live.events} />
           <p className="mb-4 text-sm text-zinc-400">
-            Full <code className="text-zinc-300">bolha_ad_states</code> table:{' '}
-            <Link to="/admin/bolha/ad-states" className="text-indigo-300 hover:underline">
-              open ad states
+            <Link to="/admin/bolha/ads" className="text-indigo-300 hover:underline">
+              bolha_ads registry
             </Link>
-            .
+            {' '}
+            (every probed ID + scrape history) ·{' '}
+            <Link to="/admin/bolha/ad-states" className="text-indigo-300 hover:underline">
+              bolha_ad_states
+            </Link>
+            {' '}
+            (pipeline queue)
           </p>
         </>
       )}
@@ -47,7 +52,12 @@ export default function AdminBolhaPage() {
         and the scan continues in the window.{' '}
         <code className="text-zinc-200">bolha.backfill</code> works eligible IDs below{' '}
         <code className="text-zinc-200">last_working</code> from high to low with a{' '}
-        <code className="text-zinc-200">FALLBACK_TIMEOUT_SECONDS</code> window from first failed check.
+        <code className="text-zinc-200">FALLBACK_TIMEOUT_SECONDS</code> window from first failed check.{' '}
+        <code className="text-zinc-200">bolha.scout</code> (<code className="text-zinc-200">make bolha:scout</code>)
+        is a one-shot worker: it gallops (+1000, doubling) and binary-searches progressive-scrape
+        probes to find the highest known ID (active or expired), updates{' '}
+        <code className="text-zinc-200">last_working_ad_id</code>, and exits — use when the anchor
+        is far behind a large block of <code className="text-zinc-200">not_yet_created</code> IDs.
       </p>
       <p>
         Constants live in <code className="text-zinc-200">scraper/sources/bolha_common.py</code>. The

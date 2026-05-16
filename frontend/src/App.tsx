@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import AdminPage from './pages/AdminPage'
 import AdminAvtoNetPage from './pages/AdminAvtoNetPage'
 import AdminBolhaAdStatesPage from './pages/AdminBolhaAdStatesPage'
+import AdminBolhaAdsPage from './pages/AdminBolhaAdsPage'
 import AdminBolhaPage from './pages/AdminBolhaPage'
 import ListingsPage from './pages/ListingsPage'
 import LoginPage from './pages/LoginPage'
@@ -27,6 +28,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <AdminBolhaAdStatesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/bolha/ads"
+        element={
+          <ProtectedRoute>
+            <AdminBolhaAdsPage />
           </ProtectedRoute>
         }
       />

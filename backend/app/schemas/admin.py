@@ -93,6 +93,23 @@ class BolhaProgressiveState(BaseModel):
     tail_rows: list[BolhaProgressiveRow]
 
 
+class BolhaAdScrapeEntryOut(BaseModel):
+    offset_seconds: float
+    at: datetime
+    source: str
+    result: str
+    http_status: int | None = None
+    detail: str | None = None
+
+
+class BolhaAdOut(BaseModel):
+    ad_id: int
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    scrapes: list[BolhaAdScrapeEntryOut]
+
+
 class BolhaAdStateOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
