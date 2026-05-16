@@ -13,21 +13,24 @@ new listings in Postgres.
 
 - **Backend**: FastAPI · SQLAlchemy 2 (async) · Alembic · asyncpg · Pydantic v2 · Argon2 · `uv`
 - **Auth**: HTTP-only session cookies, sessions persisted in Postgres
-- **Scraper**: APScheduler · httpx · selectolax (separate worker process)
-- **Frontend**: Vite · React 18 · TypeScript · Tailwind CSS v4 · React Router · TanStack Query · Axios
-- **Infra**: Docker Compose (Postgres 16)
+- **Scrapers**: APScheduler · httpx · selectolax (separate worker processes: lookahead, backfill)
+- **Matcher**: separate worker; Postgres `matcher_jobs` NOTIFY
+- **Frontend**: Vite · React 19 · TypeScript · Tailwind CSS v4 · React Router · TanStack Query · Axios
+- **Dev infra**: Docker Compose (Postgres 16 on host port **5435**)
+- **Prod infra**: Hetzner VPS · Docker Compose · Caddy · GitHub Actions → GHCR
 
 ## Layout
 
 ```
 spider-python/
-├── backend/        # FastAPI app, scraper worker, alembic migrations
-│   ├── app/
-│   ├── scraper/
-│   └── alembic/
-├── frontend/       # Vite + React + TS app
-├── scripts/dev.sh  # used by `make dev`
-├── docker-compose.yml
+├── backend/                 # FastAPI, scraper, matcher, alembic
+├── frontend/                # Vite + React + TS
+├── deploy/                  # production bootstrap, Caddy, env template
+├── docker-compose.yml       # dev Postgres only
+├── docker-compose.prod.yml  # production stack
+├── Dockerfile               # prod image (frontend + backend)
+├── .github/workflows/       # CI/CD deploy to Hetzner
+├── scripts/dev.sh
 ├── Makefile
 └── .env.example
 ```
@@ -59,6 +62,7 @@ Open <http://127.0.0.1:5173>, register an account, and you're in.
 | `make fe` | Run frontend dev server only on `:5173` |
 | `make bolha:lookahead` | Run the Bolha lookahead scraper worker only |
 | `make bolha:backfill` | Run the Bolha backfill scraper worker only |
+| `make matcher` | Run the matcher worker (listing → scraper matches) |
 | `make avtonet` | Placeholder for a future avto.net–only worker (not wired yet) |
 | `make migrate` | Apply pending Alembic migrations |
 | `make migration name="add foo column"` | Create a new auto-generated migration |
@@ -95,6 +99,52 @@ All routes are mounted under `/api`. Auth is via HTTP-only cookie.
 | `GET`  | `/api/health` | Health check |
 
 OpenAPI docs available at <http://127.0.0.1:8000/docs> when the backend is running.
+
+## Production
+
+Staging runs on a **Hetzner VPS** at `46.224.37.205`, served at **https://new.spider.si**
+(when DNS points there). Later cutover to `spider.si`.
+
+| What | How |
+|------|-----|
+| SSH | `ssh spider.si` (see `~/.ssh/config` — host `46.224.37.205`, user `root`) |
+| App on server | `/opt/spider` — `docker compose -f docker-compose.prod.yml …` |
+| Deploy | Push to `main` / `master` → GitHub Actions builds image → GHCR → SSH deploy |
+| Full ops guide | [`deploy/README.md`](./deploy/README.md) |
+| Agent / ops cheat sheet | [`AGENTS.md` §9](./AGENTS.md#9-production-server-cicd-and-operations) |
+
+**Quick checks**
+
+```bash
+curl -sS https://new.spider.si/api/health
+ssh spider.si 'docker compose -f /opt/spider/docker-compose.prod.yml ps'
+ssh spider.si 'docker compose -f /opt/spider/docker-compose.prod.yml logs -f worker-lookahead'
+ssh spider.si 'docker exec -it spider-db-1 psql -U spider -d spider'
+```
+
+CI/CD needs GitHub Actions secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`,
+`DEPLOY_PATH`, `GHCR_PULL_TOKEN` — see [`deploy/README.md`](./deploy/README.md).
+
+**DNS** is managed in Cloudflare (zone `spider.si`). API token in local `.env`
+(`CLOUDFLARE_API_TOKEN`); agents read it with `grep CLOUDFLARE .env` — see
+[`AGENTS.md` §9.6](./AGENTS.md#96-cloudflare-dns-spidersi).
+
+## How it works (runtime)
+
+In **development**, `make dev` runs Postgres + API + Vite frontend. Scrapers and
+matcher are started separately (`make bolha:lookahead`, `make bolha:backfill`,
+`make matcher`).
+
+In **production**, one Docker image runs as five app services plus Caddy and Postgres:
+
+1. **api** — FastAPI + built React (`/api/*` + static files)
+2. **worker-lookahead** — probes new Bolha ad IDs ahead of the anchor
+3. **worker-backfill** — retries ads in the fallback pipeline
+4. **worker-matcher** — matches listings to user scrapers
+5. **db** — Postgres 16
+
+Processes talk through the **same database** using Postgres `LISTEN`/`NOTIFY`
+(admin live events, matcher jobs). No Redis.
 
 ## Scraper notes
 
