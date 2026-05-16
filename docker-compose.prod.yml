@@ -1,0 +1,84 @@
+# Production stack for Hetzner (or any Docker host).
+# Copy deploy/env.example → .env on the server before first deploy.
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
+
+name: spider
+
+x-app: &app
+  image: ${SPIDER_IMAGE}:${IMAGE_TAG:-latest}
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://spider:${POSTGRES_PASSWORD}@db:5432/spider
+    ALEMBIC_DATABASE_URL: postgresql+psycopg://spider:${POSTGRES_PASSWORD}@db:5432/spider
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: spider
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: spider
+    volumes:
+      - spider_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spider -d spider"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    <<: *app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker-lookahead:
+    <<: *app
+    command: ["python", "-m", "scraper.worker", "--sources", "bolha.lookahead"]
+
+  worker-backfill:
+    <<: *app
+    command: ["python", "-m", "scraper.worker", "--sources", "bolha.backfill"]
+
+  worker-matcher:
+    <<: *app
+    command: ["python", "-m", "matcher.worker"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  spider_pg_data:
+  caddy_data:
+  caddy_config:

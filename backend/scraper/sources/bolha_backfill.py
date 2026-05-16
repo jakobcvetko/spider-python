@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import SessionLocal
 from app.models import BolhaAdState
@@ -32,6 +33,30 @@ from scraper.sources.bolha_common import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def _fallback_age_seconds(st: BolhaAdState, now: datetime) -> float | None:
+    if st.first_fallback_scrape_at is None:
+        return None
+    return (now - st.first_fallback_scrape_at).total_seconds()
+
+
+async def _mark_timed_out(
+    db: AsyncSession,
+    ad_id: int,
+    *,
+    now: datetime,
+) -> None:
+    await db.execute(
+        update(BolhaAdState)
+        .where(BolhaAdState.ad_id == ad_id)
+        .values(
+            status=STATUS_TIMED_OUT,
+            last_fallback_scrape_at=now,
+            last_outcome="timed_out",
+            last_detail=None,
+        )
+    )
 
 
 class BolhaBackfillSource:
@@ -67,6 +92,11 @@ class BolhaBackfillSource:
 
             for st in rows:
                 ad_id = st.ad_id
+                age_s = _fallback_age_seconds(st, now)
+                if age_s is not None and age_s >= FALLBACK_TIMEOUT_SECONDS:
+                    await _mark_timed_out(db, ad_id, now=now)
+                    continue
+
                 url = AD_PROBE_URL_TEMPLATE.format(ad_id=ad_id)
                 try:
                     resp = await client.get(url, timeout=25.0)
@@ -101,6 +131,9 @@ class BolhaBackfillSource:
                         http_status=-1,
                         gtm_ad_status=None,
                     )
+                    age_s = _fallback_age_seconds(st, now)
+                    if age_s is not None and age_s >= FALLBACK_TIMEOUT_SECONDS:
+                        await _mark_timed_out(db, ad_id, now=now)
                     continue
 
                 html = resp.text
@@ -147,42 +180,35 @@ class BolhaBackfillSource:
                     await delete_ad_state(db, ad_id)
                     continue
 
+                age_s = _fallback_age_seconds(st, now)
+                if age_s is not None and age_s >= FALLBACK_TIMEOUT_SECONDS:
+                    await _mark_timed_out(db, ad_id, now=now)
+                    continue
+
                 if st.status == STATUS_PENDING_FALLBACK:
+                    values: dict[str, object] = {
+                        "status": STATUS_FALLBACK_WARMING,
+                        "last_fallback_scrape_at": now,
+                        "last_outcome": oc,
+                        "last_detail": None,
+                    }
+                    if st.first_fallback_scrape_at is None:
+                        values["first_fallback_scrape_at"] = now
+                    await db.execute(
+                        update(BolhaAdState)
+                        .where(BolhaAdState.ad_id == ad_id)
+                        .values(**values)
+                    )
+                else:
                     await db.execute(
                         update(BolhaAdState)
                         .where(BolhaAdState.ad_id == ad_id)
                         .values(
-                            status=STATUS_FALLBACK_WARMING,
-                            first_fallback_scrape_at=now,
                             last_fallback_scrape_at=now,
                             last_outcome=oc,
                             last_detail=None,
                         )
                     )
-                else:
-                    first_at = st.first_fallback_scrape_at or now
-                    age_s = (now - first_at).total_seconds()
-                    if age_s >= FALLBACK_TIMEOUT_SECONDS:
-                        await db.execute(
-                            update(BolhaAdState)
-                            .where(BolhaAdState.ad_id == ad_id)
-                            .values(
-                                status=STATUS_TIMED_OUT,
-                                last_fallback_scrape_at=now,
-                                last_outcome="timed_out",
-                                last_detail=None,
-                            )
-                        )
-                    else:
-                        await db.execute(
-                            update(BolhaAdState)
-                            .where(BolhaAdState.ad_id == ad_id)
-                            .values(
-                                last_fallback_scrape_at=now,
-                                last_outcome=oc,
-                                last_detail=None,
-                            )
-                        )
 
             await db.commit()
             log.info(

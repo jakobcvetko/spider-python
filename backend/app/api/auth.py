@@ -29,7 +29,7 @@ def _set_session_cookie(response: Response, token: str, max_age_seconds: int) ->
         max_age=max_age_seconds,
         httponly=True,
         samesite="lax",
-        secure=False,  # set True behind HTTPS in production
+        secure=settings.session_cookie_secure,
         path="/",
     )
 
@@ -38,6 +38,7 @@ def _clear_session_cookie(response: Response) -> None:
     response.delete_cookie(
         key=settings.session_cookie_name,
         path="/",
+        secure=settings.session_cookie_secure,
     )
 
 

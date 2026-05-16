@@ -1,12 +1,15 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api import admin as admin_router
 from app.api import auth as auth_router
 from app.api import listings as listings_router
 from app.api import scrapers as scrapers_router
+from app.api import stats as stats_router
 from app.config import get_settings
 from app.scraper_events import get_event_bus
 
@@ -42,4 +45,9 @@ async def health() -> dict[str, str]:
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(listings_router.router, prefix="/api")
 app.include_router(scrapers_router.router, prefix="/api")
+app.include_router(stats_router.router, prefix="/api")
 app.include_router(admin_router.router, prefix="/api")
+
+_STATIC_DIR = Path(__file__).resolve().parent.parent / "public"
+if (_STATIC_DIR / "index.html").is_file():
+    app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="spa")
