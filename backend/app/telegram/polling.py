@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import httpx
+
 from app.database import SessionLocal
 from app.telegram.client import get_telegram_client
 from app.telegram.webhook import handle_update
@@ -21,6 +23,8 @@ async def run_polling(stop: asyncio.Event) -> None:
     while not stop.is_set():
         try:
             updates = await client.get_updates(offset=offset, timeout=30)
+        except httpx.ReadTimeout:
+            continue
         except Exception:
             log.exception("telegram: getUpdates failed")
             await asyncio.sleep(3)

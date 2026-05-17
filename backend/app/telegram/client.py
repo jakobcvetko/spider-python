@@ -17,8 +17,15 @@ class TelegramClient:
         self._token = token
         self._base = f"{_API_BASE}/bot{token}"
 
-    async def _post(self, method: str, payload: dict[str, Any]) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+    async def _post(
+        self,
+        method: str,
+        payload: dict[str, Any],
+        *,
+        http_timeout: float | httpx.Timeout | None = None,
+    ) -> dict[str, Any]:
+        timeout = http_timeout if http_timeout is not None else 30.0
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(f"{self._base}/{method}", json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -69,7 +76,13 @@ class TelegramClient:
         }
         if offset is not None:
             payload["offset"] = offset
-        return await self._post("getUpdates", payload)
+        # Telegram holds the connection for up to `timeout` seconds; httpx must wait longer.
+        read_timeout = float(timeout + 15)
+        return await self._post(
+            "getUpdates",
+            payload,
+            http_timeout=httpx.Timeout(connect=10.0, read=read_timeout, write=10.0, pool=10.0),
+        )
 
 
 def get_telegram_client() -> TelegramClient | None:
