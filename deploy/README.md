@@ -60,7 +60,7 @@ All workers share the production Postgres DB and use `LISTEN`/`NOTIFY` (see `AGE
 | `DEPLOY_USER` | `deploy` |
 | `DEPLOY_SSH_KEY` | Private PEM for `deploy@` |
 | `DEPLOY_PATH` | `/opt/spider` |
-| `GHCR_PULL_TOKEN` | PAT with `read:packages` (private GHCR) |
+| `GHCR_PULL_TOKEN` | Optional — PAT with `read:packages` (only if GHCR image is private) |
 
 Server `/opt/spider/.env` must include `SPIDER_IMAGE=ghcr.io/jakobcvetko/spider-python`.
 
