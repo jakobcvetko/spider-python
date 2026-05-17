@@ -1,4 +1,5 @@
 # Requires DOMAIN and PORTAINER_DOMAIN in server .env (DNS A/AAAA → this host).
+# DOMAIN may list multiple hosts separated by comma+space, e.g. spider.si, new.spider.si
 {
 	email {$ACME_EMAIL}
 }

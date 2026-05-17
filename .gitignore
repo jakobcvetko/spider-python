@@ -16,6 +16,9 @@ dist/
 .vite/
 *.log
 
+# Legacy RDS exports (PII, password hashes)
+data/legacy-rds-export/
+
 # Editor / OS
 .DS_Store
 .idea/
