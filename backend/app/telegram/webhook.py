@@ -5,8 +5,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models import User
 from app.telegram.client import get_telegram_client
-from app.telegram.link import consume_link_token
+from app.telegram.link import LinkTokenFailure, consume_link_token
 
 log = logging.getLogger(__name__)
 
@@ -61,8 +62,15 @@ async def handle_update(db: AsyncSession, update: dict[str, Any]) -> None:
             return
 
         token = parts[1].strip()
-        user = await consume_link_token(db, token, chat_id, username)
-        if user is None:
+        result = await consume_link_token(db, token, chat_id, username)
+        if result is LinkTokenFailure.CHAT_ALREADY_LINKED:
+            await _reply(
+                chat_id,
+                "This Telegram is already connected to another Spider account. "
+                "Disconnect it there first, or sign in to that account.",
+            )
+            return
+        if result is LinkTokenFailure.INVALID_OR_EXPIRED:
             await _reply(
                 chat_id,
                 "This link is invalid or expired. Go back to Spider and tap Connect again.",
@@ -78,8 +86,6 @@ async def handle_update(db: AsyncSession, update: dict[str, Any]) -> None:
 
     if text.strip() == "/stop":
         from sqlalchemy import select
-
-        from app.models import User
 
         result = await db.execute(select(User).where(User.telegram_chat_id == chat_id))
         user = result.scalar_one_or_none()

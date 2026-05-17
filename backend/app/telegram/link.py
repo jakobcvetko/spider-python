@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -10,6 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models import TelegramLinkToken, User
 from app.telegram.bot_state import get_bot_username
+
+
+class LinkTokenFailure(enum.StrEnum):
+    INVALID_OR_EXPIRED = "invalid_or_expired"
+    CHAT_ALREADY_LINKED = "chat_already_linked"
 
 
 def deep_link_url(token: str) -> str | None:
@@ -42,18 +48,18 @@ async def consume_link_token(
     token: str,
     chat_id: int,
     username: str | None,
-) -> User | None:
+) -> User | LinkTokenFailure:
     now = datetime.now(UTC)
     result = await db.execute(
         select(TelegramLinkToken).where(TelegramLinkToken.token == token)
     )
     link = result.scalar_one_or_none()
     if link is None or link.expires_at < now:
-        return None
+        return LinkTokenFailure.INVALID_OR_EXPIRED
 
     user = await db.get(User, link.user_id)
     if user is None:
-        return None
+        return LinkTokenFailure.INVALID_OR_EXPIRED
 
     existing = await db.execute(
         select(User).where(
@@ -62,7 +68,7 @@ async def consume_link_token(
         )
     )
     if existing.scalar_one_or_none() is not None:
-        return None
+        return LinkTokenFailure.CHAT_ALREADY_LINKED
 
     user.telegram_chat_id = chat_id
     user.telegram_username = username
