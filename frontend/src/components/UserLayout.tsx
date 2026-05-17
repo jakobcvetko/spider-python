@@ -33,13 +33,13 @@ export function UserLayout() {
         key={location.pathname}
         logoTo="/"
         items={USER_NAV}
-        trailing={
-          <UserAccountMenu displayName={displayName}>
+        trailing={({ onNavigate, layout }) => (
+          <UserAccountMenu displayName={displayName} onClose={onNavigate} layout={layout}>
             {isAdmin && (
-              <DashboardSwitchLink to="/admin" target="admin" />
+              <DashboardSwitchLink to="/admin" target="admin" onClick={onNavigate} />
             )}
           </UserAccountMenu>
-        }
+        )}
       />
 
       <Outlet />

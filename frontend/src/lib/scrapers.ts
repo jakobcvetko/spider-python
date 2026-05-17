@@ -21,6 +21,14 @@ export const scraperKeys = {
   all: ['scrapers'] as const,
 }
 
+export function isActiveScraper(scraper: Scraper): boolean {
+  return scraper.bolha_enabled || scraper.avtonet_enabled
+}
+
+export function countActiveScrapers(scrapers: Scraper[] | undefined): number {
+  return (scrapers ?? []).filter(isActiveScraper).length
+}
+
 export function useScrapers(enabled = true) {
   return useQuery<Scraper[]>({
     queryKey: scraperKeys.all,

@@ -11,11 +11,14 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.listings import listing_default_order
+from app.avtonet_ads_serialize import avtonet_ad_to_out as _avtonet_ad_to_out
 from app.bolha_ads_serialize import bolha_ad_to_out as _bolha_ad_to_out
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_admin_user_from_cookie, require_admin
 from app.models import (
+    AvtonetAd,
+    AvtonetScrapeMeta,
     BolhaAd,
     BolhaAdProbe,
     BolhaAdState,
@@ -24,10 +27,14 @@ from app.models import (
     Listing,
     User,
 )
+from app.models.avtonet_ad import AD_STATUS_SUCCESS as AVTONET_AD_STATUS_SUCCESS
 from app.models.bolha_ad import AD_STATUS_SUCCESS
 from app.schemas.admin import (
     AdminListingOut,
     AdminUserOut,
+    AvtonetAdMatchResponse,
+    AvtonetAdOut,
+    AvtonetScrapeState,
     BolhaAdMatchResponse,
     BolhaAdOut,
     BolhaAdStateOut,
@@ -40,7 +47,7 @@ from app.schemas.admin import (
 )
 from app.scraper_events import get_event_bus, make_event
 from app.telegram.notify import notify_new_matches
-from matcher.match import BOLHA_SOURCE, match_listing
+from matcher.match import AVTONET_SOURCE, BOLHA_SOURCE, match_listing
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 settings = get_settings()
@@ -78,9 +85,12 @@ def _build_status(recent_events_limit: int = 50) -> ScraperStatus:
 async def admin_list_listings(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
-    limit: int = Query(default=100, ge=1, le=100),
+    source: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=200),
 ) -> list[Listing]:
     stmt = select(Listing).order_by(*listing_default_order()).limit(limit)
+    if source is not None:
+        stmt = stmt.where(Listing.source == source)
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
@@ -114,7 +124,7 @@ async def run_source_scrape(
 ) -> RunSourceResponse:
     from scraper.sources import ALL_SOURCES
 
-    known = {s.name for s in ALL_SOURCES} | {"bolha.com"}
+    known = {s.name for s in ALL_SOURCES} | {"bolha.com", "avto.net"}
     if body.source not in known:
         raise HTTPException(
             status_code=400,
@@ -365,6 +375,83 @@ async def bolha_ad_states(
     stmt = select(BolhaAdState).order_by(BolhaAdState.ad_id.desc()).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+@router.get("/avtonet/state", response_model=AvtonetScrapeState)
+async def avtonet_scrape_state(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> AvtonetScrapeState:
+    cfg = get_settings()
+    meta = await db.get(AvtonetScrapeMeta, 1)
+    last_working = int(meta.last_working_ad_id or 0) if meta else 0
+    return AvtonetScrapeState(
+        last_working_ad_id=last_working,
+        last_working_at=meta.last_working_at if meta else None,
+        last_batch_started_at=meta.last_batch_started_at if meta else None,
+        lookahead_batch_size=cfg.avtonet_lookahead_batch_size,
+        probe_delay_seconds=cfg.avtonet_probe_delay_seconds,
+        scraperapi_enabled=cfg.scraperapi_enabled,
+    )
+
+
+@router.get("/avtonet/ads", response_model=list[AvtonetAdOut])
+async def avtonet_ads(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+    limit: int = Query(default=500, ge=1, le=10_000),
+    offset: int = Query(default=0, ge=0),
+) -> list[AvtonetAdOut]:
+    stmt = (
+        select(AvtonetAd)
+        .order_by(AvtonetAd.ad_id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_avtonet_ad_to_out(r) for r in rows]
+
+
+@router.post("/avtonet/ads/{ad_id}/match", response_model=AvtonetAdMatchResponse)
+async def run_matcher_for_avtonet_ad(
+    ad_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> AvtonetAdMatchResponse:
+    ad_row = await db.get(AvtonetAd, ad_id)
+    if ad_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad not found")
+    if ad_row.status != AVTONET_AD_STATUS_SUCCESS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Matcher only applies to ads with status success",
+        )
+
+    listing_id = (
+        await db.execute(
+            select(Listing.id).where(
+                Listing.source == AVTONET_SOURCE,
+                Listing.external_id == str(ad_id),
+            )
+        )
+    ).scalar_one_or_none()
+    if listing_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No listing row for this ad (run lookahead first)",
+        )
+
+    new_matches = await match_listing(db, listing_id)
+    await db.commit()
+
+    if new_matches:
+        await notify_new_matches(new_matches)
+
+    return AvtonetAdMatchResponse(
+        ad_id=ad_id,
+        listing_id=listing_id,
+        matches_created=len(new_matches),
+    )
 
 
 @router.websocket("/scraper/ws")

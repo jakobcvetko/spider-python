@@ -28,9 +28,36 @@ const ADMIN_NAV: NavItem[] = [
         label: 'Logs',
         isActive: (pathname) => pathname === '/admin/bolha/http-logs',
       },
+      {
+        to: '/admin/bolha/listings',
+        label: 'Listings',
+        isActive: (pathname) => pathname === '/admin/bolha/listings',
+      },
     ],
   },
-  { type: 'link', to: '/admin/avtonet', label: 'Avtonet' },
+  {
+    type: 'group',
+    label: 'Avtonet',
+    isActive: (pathname) =>
+      pathname === '/admin/avtonet' || pathname.startsWith('/admin/avtonet/'),
+    children: [
+      {
+        to: '/admin/avtonet',
+        label: 'Control panel',
+        isActive: (pathname) => pathname === '/admin/avtonet',
+      },
+      {
+        to: '/admin/avtonet/http-logs',
+        label: 'Logs',
+        isActive: (pathname) => pathname === '/admin/avtonet/http-logs',
+      },
+      {
+        to: '/admin/avtonet/listings',
+        label: 'Listings',
+        isActive: (pathname) => pathname === '/admin/avtonet/listings',
+      },
+    ],
+  },
 ]
 
 export function AdminLayout() {
@@ -69,11 +96,11 @@ export function AdminLayout() {
         logoTo="/admin"
         logoVariant="admin"
         items={ADMIN_NAV}
-        trailing={
-          <UserAccountMenu displayName={displayName}>
-            <DashboardSwitchLink to="/" target="user" />
+        trailing={({ onNavigate, layout }) => (
+          <UserAccountMenu displayName={displayName} onClose={onNavigate} layout={layout}>
+            <DashboardSwitchLink to="/" target="user" onClick={onNavigate} />
           </UserAccountMenu>
-        }
+        )}
       />
 
       <Outlet />

@@ -47,8 +47,12 @@ log = logging.getLogger("scraper")
 HEARTBEAT_INTERVAL_SECONDS = 5
 
 BOLHA_EMIT_SOURCES = frozenset({"bolha.lookahead", "bolha.backfill", "bolha.scout"})
+AVTONET_EMIT_SOURCES = frozenset({"avto.net.lookahead", "avto.net.scout"})
+EMIT_SOURCES = BOLHA_EMIT_SOURCES | AVTONET_EMIT_SOURCES
 
-_NO_INTERVAL_SOURCES = frozenset({"bolha.lookahead", "bolha.scout"})
+_NO_INTERVAL_SOURCES = frozenset(
+    {"bolha.lookahead", "bolha.scout", "avto.net.lookahead", "avto.net.scout"}
+)
 
 
 def _listing_source_for(source: Source) -> str:
@@ -168,7 +172,7 @@ async def run_source(
 
     listing_src = _listing_source_for(source)
     try:
-        if source.name in BOLHA_EMIT_SOURCES:
+        if source.name in EMIT_SOURCES:
             items = await source.fetch(client, emit=publisher.emit)  # type: ignore[call-arg]
         else:
             items = await source.fetch(client)
@@ -315,11 +319,13 @@ async def commands_loop(
                 )
             )
             return
-        if source_name == "bolha.com":
+        if source_name in ("bolha.com", "avto.net"):
+            listing_src = source_name
             matches = [
                 s
                 for s in sources
-                if getattr(s, "listing_source", None) == "bolha.com"
+                if getattr(s, "listing_source", None) == listing_src
+                or s.name == listing_src
             ]
             if not matches:
                 known = [s.name for s in sources]
@@ -339,8 +345,8 @@ async def commands_loop(
                         make_event(
                             "debug_source_start",
                             source=match.name,
-                            message=f"admin bolha pipeline step ({reason})",
-                            data={"reason": reason, "pipeline": "bolha.com"},
+                            message=f"admin {listing_src} pipeline step ({reason})",
+                            data={"reason": reason, "pipeline": listing_src},
                         )
                     )
                     await run_source(match, client, publisher, source_holder, debug=True)
@@ -349,7 +355,7 @@ async def commands_loop(
                         make_event(
                             "debug_source_done",
                             source=match.name,
-                            message=f"bolha pipeline step finished in {elapsed_ms}ms",
+                            message=f"{listing_src} pipeline step finished in {elapsed_ms}ms",
                             data={"elapsed_ms": elapsed_ms},
                         )
                     )
@@ -472,7 +478,10 @@ async def main(sources: list[Source]) -> None:
         event_hooks=_make_http_event_hooks(publisher, source_holder),
     )
 
-    scout_only = len(sources) == 1 and sources[0].name == "bolha.scout"
+    scout_only = len(sources) == 1 and sources[0].name in (
+        "bolha.scout",
+        "avto.net.scout",
+    )
     if scout_only:
         try:
             await run_all_sources(
@@ -484,7 +493,7 @@ async def main(sources: list[Source]) -> None:
             )
             await client.aclose()
             await publisher.stop()
-        log.info("bolha scout finished; worker exiting")
+        log.info("%s finished; worker exiting", sources[0].name)
         return
 
     scheduler = AsyncIOScheduler()

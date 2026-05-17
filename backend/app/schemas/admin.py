@@ -116,6 +116,38 @@ class BolhaAdMatchResponse(BaseModel):
     matches_created: int
 
 
+class AvtonetAdScrapeEntryOut(BaseModel):
+    offset_seconds: float
+    at: datetime
+    source: str
+    result: str
+    http_status: int | None = None
+    detail: str | None = None
+
+
+class AvtonetAdOut(BaseModel):
+    ad_id: int
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    scrapes: list[AvtonetAdScrapeEntryOut]
+
+
+class AvtonetAdMatchResponse(BaseModel):
+    ad_id: int
+    listing_id: uuid.UUID
+    matches_created: int
+
+
+class AvtonetScrapeState(BaseModel):
+    last_working_ad_id: int
+    last_working_at: datetime | None
+    last_batch_started_at: datetime | None
+    lookahead_batch_size: int
+    probe_delay_seconds: float
+    scraperapi_enabled: bool
+
+
 class BolhaAdStateOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

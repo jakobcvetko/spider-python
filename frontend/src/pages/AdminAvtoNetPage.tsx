@@ -1,24 +1,47 @@
-import { AdminSourceDebugScrape } from '../components/AdminSourceDebugScrape'
+import { AvtonetAdsTable } from '../components/AvtonetAdsTable'
+import { Card } from '../components/ui'
+import { useAvtonetScrapeState } from '../lib/admin'
 
 export default function AdminAvtoNetPage() {
+  const state = useAvtonetScrapeState(true)
+
   return (
-    <AdminSourceDebugScrape sourceName="avto.net" title="avto.net debug">
-      <p>
-        The worker requests the default search URL built in{' '}
-        <code className="text-zinc-800">scraper/sources/avto_net.py</code> (wide-open filters,
-        first page). avto.net is commonly protected by a Cloudflare-style edge; automated clients
-        often get <strong className="text-zinc-800">403</strong> with no usable HTML.
+    <>
+      <header className="mb-4">
+        <h1 className="text-2xl font-semibold tracking-tight">avtonet_ads</h1>
+      </header>
+
+      <p className="mb-3 text-sm text-zinc-400">
+        Live view of the highest avto.net ad IDs probed by lookahead. Status:{' '}
+        <span className="text-amber-700">pending</span>,{' '}
+        <span className="text-emerald-700">success</span> (listing parsed),{' '}
+        <span className="text-rose-700">removed</span> (404 / gone).
       </p>
-      <p>
-        On a successful 200 HTML response, the parser extracts listing cards into{' '}
-        <code className="text-zinc-800">ScrapedItem</code> rows and the worker upserts into Postgres
-        (deduped by source + external id).
-      </p>
-      <p className="text-amber-700/90">
-        Expect <code className="text-amber-800">403</code> until the fetch path is upgraded (e.g.
-        browser automation or carefully tuned headers) — this page is for watching exactly what the
-        worker sees on the wire.
-      </p>
-    </AdminSourceDebugScrape>
+
+      {state.data && (
+        <Card className="mb-4 text-sm text-zinc-600">
+          <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat label="Last working id" value={String(state.data.last_working_ad_id || '—')} />
+            <Stat label="Batch size" value={String(state.data.lookahead_batch_size)} />
+            <Stat label="Probe delay" value={`${state.data.probe_delay_seconds}s`} />
+            <Stat
+              label="Fetch"
+              value={state.data.scraperapi_enabled ? 'ScraperAPI' : 'direct httpx'}
+            />
+          </dl>
+        </Card>
+      )}
+
+      <AvtonetAdsTable enabled />
+    </>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-wide text-zinc-400">{label}</dt>
+      <dd className="font-mono text-zinc-800">{value}</dd>
+    </div>
   )
 }

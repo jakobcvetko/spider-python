@@ -66,10 +66,12 @@ export type AdminListing = {
 export const adminKeys = {
   users: ["admin", "users"] as const,
   scraperStatus: ["admin", "scraper", "status"] as const,
-  listings: ["admin", "listings"] as const,
+  listingsRoot: ["admin", "listings"] as const,
   bolhaProgressive: ["admin", "bolha", "progressive"] as const,
   bolhaAdStates: ["admin", "bolha", "ad-states"] as const,
   bolhaAds: ["admin", "bolha", "ads"] as const,
+  avtonetAds: ["admin", "avtonet", "ads"] as const,
+  avtonetState: ["admin", "avtonet", "state"] as const,
 };
 
 /** Highest ad_id rows shown on the live bolha_ads registry table. */
@@ -96,6 +98,30 @@ export function useBolhaHttpLogs(events: ScraperEvent[]): ScraperEvent[] {
 
 /** Matches backend ``LOOKAHEAD_ADS`` (bolha.lookahead window size). */
 export const BOLHA_LOOKAHEAD_COUNT = 20;
+
+/** Highest ad_id rows on the live avtonet_ads registry table. */
+export const AVTONET_ADS_TOP_LIMIT = 200;
+
+/** Avtonet HTTP log table on /admin/avtonet/http-logs. */
+export const AVTONET_HTTP_LOGS_LIMIT = 100;
+
+const AVTONET_HTTP_KINDS = new Set(["http_request", "http_response"]);
+
+export function isAvtonetHttpEvent(ev: ScraperEvent): boolean {
+  if (!AVTONET_HTTP_KINDS.has(ev.kind)) return false;
+  const src = ev.source ?? "";
+  return src === "avto.net" || src.startsWith("avto.net.");
+}
+
+export function useAvtonetHttpLogs(events: ScraperEvent[]): ScraperEvent[] {
+  return useMemo(() => {
+    const filtered = events.filter(isAvtonetHttpEvent);
+    return filtered.slice(-AVTONET_HTTP_LOGS_LIMIT);
+  }, [events]);
+}
+
+/** Matches backend ``AVTONET_LOOKAHEAD_BATCH_SIZE`` (same as bolha ``LOOKAHEAD_ADS`` = 20). */
+export const AVTONET_LOOKAHEAD_COUNT = 20;
 
 export function useAdminUsers(enabled: boolean) {
   return useQuery<AdminUser[]>({
@@ -165,9 +191,26 @@ export type BolhaAdRow = {
   scrapes: BolhaAdScrapeEntry[];
 };
 
+export type AvtonetAdScrapeEntry = BolhaAdScrapeEntry;
+export type AvtonetAdRow = BolhaAdRow;
+export type AvtonetAdMatchResponse = BolhaAdMatchResponse;
+
+export type AvtonetScrapeState = {
+  last_working_ad_id: number;
+  last_working_at: string | null;
+  last_batch_started_at: string | null;
+  lookahead_batch_size: number;
+  probe_delay_seconds: number;
+  scraperapi_enabled: boolean;
+};
+
 /** Bolha iAPI probe URL (works for any ad ID without knowing the slug). */
 export function bolhaAdUrl(adId: number): string {
   return `https://iapi.bolha.com/avtomobili/progressive-scrape-oglas-${adId}`;
+}
+
+export function avtonetAdUrl(adId: number): string {
+  return `https://www.avto.net/Ads/details.asp?id=${adId}`;
 }
 
 export function bolhaAdsQueryKey(limit: number) {
@@ -281,6 +324,74 @@ export function applyBolhaAdWsEvent(
       return next;
     }
     const row: BolhaAdRow = {
+      ad_id: adId,
+      status: ev.data.status as string,
+      created_at: createdAt,
+      updated_at: updatedAt,
+      scrapes: [scrape],
+    };
+    return [row, ...prev].sort((a, b) => b.ad_id - a.ad_id).slice(0, limit);
+  });
+  return true;
+}
+
+/** Apply one ``avtonet_ad_update`` event to the React Query cache. */
+export function applyAvtonetAdWsEvent(
+  qc: QueryClient,
+  limit: number,
+  ev: ScraperEvent,
+): boolean {
+  if (ev.kind !== "avtonet_ad_update" || !ev.data) return false;
+  if (ev.data._truncated) return false;
+
+  const legacyRow = ev.data.row != null ? parseBolhaAdRow(ev.data.row) : null;
+  if (legacyRow) {
+    qc.setQueryData<AvtonetAdRow[]>(avtonetAdsQueryKey(limit), (prev) => {
+      if (!prev) return prev;
+      const idx = prev.findIndex((x) => x.ad_id === legacyRow.ad_id);
+      if (idx >= 0) {
+        const next = prev.slice();
+        next[idx] = legacyRow;
+        return next;
+      }
+      return [legacyRow, ...prev]
+        .sort((a, b) => b.ad_id - a.ad_id)
+        .slice(0, limit);
+    });
+    return true;
+  }
+
+  const adId = normalizeAdId(ev.data.ad_id);
+  const createdAt =
+    typeof ev.data.created_at === "string" ? ev.data.created_at : null;
+  const scrape = createdAt ? parseScrapeEntry(ev.data.scrape, createdAt) : null;
+  if (
+    adId == null ||
+    !scrape ||
+    typeof ev.data.status !== "string" ||
+    !createdAt
+  )
+    return false;
+
+  const updatedAt =
+    typeof ev.data.updated_at === "string" ? ev.data.updated_at : createdAt;
+
+  qc.setQueryData<AvtonetAdRow[]>(avtonetAdsQueryKey(limit), (prev) => {
+    if (!prev) return prev;
+    const idx = prev.findIndex((x) => x.ad_id === adId);
+    if (idx >= 0) {
+      const cur = prev[idx];
+      if (cur.scrapes.some((s) => s.at === scrape.at)) return prev;
+      const next = prev.slice();
+      next[idx] = {
+        ...cur,
+        status: ev.data.status as string,
+        updated_at: updatedAt,
+        scrapes: [...cur.scrapes, scrape],
+      };
+      return next;
+    }
+    const row: AvtonetAdRow = {
       ad_id: adId,
       status: ev.data.status as string,
       created_at: createdAt,
@@ -406,6 +517,128 @@ export function useBolhaAds(enabled: boolean, limit = BOLHA_ADS_TOP_LIMIT) {
   });
 }
 
+export function avtonetAdsQueryKey(limit: number) {
+  return [...adminKeys.avtonetAds, limit] as const;
+}
+
+export function useAvtonetPivotFromWs(
+  enabled: boolean,
+  events: ScraperEvent[],
+): BolhaPivotMeta {
+  return useMemo(() => {
+    if (!enabled) {
+      return {
+        lastWorkingId: 0,
+        scanAnchorId: 0,
+        lookaheadCount: AVTONET_LOOKAHEAD_COUNT,
+      };
+    }
+    let lastWorkingId = 0;
+    let scanAnchorId = 0;
+    for (const ev of events) {
+      if (ev.kind === "avtonet_progress_tick") {
+        const lw = ev.data?.last_working_ad_id;
+        if (typeof lw === "number") lastWorkingId = lw;
+      }
+      if (ev.kind === "avtonet_scout_done") {
+        const na = ev.data?.new_anchor;
+        if (typeof na === "number") {
+          lastWorkingId = na;
+          scanAnchorId = na;
+        }
+      }
+    }
+    return {
+      lastWorkingId,
+      scanAnchorId,
+      lookaheadCount: AVTONET_LOOKAHEAD_COUNT,
+    };
+  }, [enabled, events]);
+}
+
+export function useAvtonetAdsWsSync(
+  enabled: boolean,
+  limit: number,
+  events: ScraperEvent[],
+  adsReady: boolean,
+  socketConnected: boolean,
+): void {
+  const qc = useQueryClient();
+  const seenIds = useRef(new Set<string>());
+  const wasConnected = useRef(false);
+  const adsReadyRef = useRef(adsReady);
+
+  useEffect(() => {
+    adsReadyRef.current = adsReady;
+  }, [adsReady]);
+
+  const applyOne = useCallback(
+    (ev: ScraperEvent) => {
+      if (!adsReadyRef.current || seenIds.current.has(ev.id)) return;
+      if (ev.kind !== "avtonet_ad_update") return;
+      if (applyAvtonetAdWsEvent(qc, limit, ev)) {
+        seenIds.current.add(ev.id);
+      }
+    },
+    [qc, limit],
+  );
+
+  useEffect(() => {
+    if (!enabled) {
+      seenIds.current.clear();
+      wasConnected.current = false;
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (socketConnected && !wasConnected.current) {
+      seenIds.current.clear();
+    }
+    wasConnected.current = socketConnected;
+  }, [enabled, socketConnected]);
+
+  useEffect(() => {
+    if (!enabled || !adsReady) return;
+    for (const ev of events) {
+      applyOne(ev);
+    }
+  }, [enabled, adsReady, events, applyOne]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    return subscribeScraperEvents(applyOne);
+  }, [enabled, applyOne]);
+}
+
+export function useAvtonetAds(enabled: boolean, limit = AVTONET_ADS_TOP_LIMIT) {
+  return useQuery<AvtonetAdRow[]>({
+    queryKey: avtonetAdsQueryKey(limit),
+    queryFn: async () => {
+      const { data } = await api.get<AvtonetAdRow[]>("/admin/avtonet/ads", {
+        params: { limit },
+      });
+      return data;
+    },
+    enabled,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+}
+
+export function useAvtonetScrapeState(enabled: boolean) {
+  return useQuery<AvtonetScrapeState>({
+    queryKey: adminKeys.avtonetState,
+    queryFn: async () => {
+      const { data } = await api.get<AvtonetScrapeState>("/admin/avtonet/state");
+      return data;
+    },
+    enabled,
+    refetchInterval: enabled ? 5000 : false,
+  });
+}
+
 const scraperEventListeners = new Set<(ev: ScraperEvent) => void>();
 
 export function subscribeScraperEvents(
@@ -454,12 +687,26 @@ export function useBolhaProgressiveState(enabled: boolean) {
   });
 }
 
-export function useAdminListings(enabled: boolean) {
+export const BOLHA_LISTING_SOURCE = "bolha.com";
+export const AVTONET_LISTING_SOURCE = "avto.net";
+
+export function adminListingsQueryKey(source?: string) {
+  return source
+    ? ([...adminKeys.listingsRoot, source] as const)
+    : adminKeys.listingsRoot;
+}
+
+export function useAdminListings(
+  enabled: boolean,
+  options?: { source?: string; limit?: number },
+) {
+  const source = options?.source;
+  const limit = options?.limit ?? 100;
   return useQuery<AdminListing[]>({
-    queryKey: adminKeys.listings,
+    queryKey: adminListingsQueryKey(source),
     queryFn: async () => {
       const { data } = await api.get<AdminListing[]>("/admin/listings", {
-        params: { limit: 100 },
+        params: { limit, ...(source ? { source } : {}) },
       });
       return data;
     },
@@ -490,10 +737,12 @@ export function useTriggerScraper() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.scraperStatus });
-      qc.invalidateQueries({ queryKey: adminKeys.listings });
+      qc.invalidateQueries({ queryKey: adminKeys.listingsRoot });
       qc.invalidateQueries({ queryKey: adminKeys.bolhaProgressive });
       qc.invalidateQueries({ queryKey: adminKeys.bolhaAdStates });
       qc.invalidateQueries({ queryKey: adminKeys.bolhaAds });
+      qc.invalidateQueries({ queryKey: adminKeys.avtonetAds });
+      qc.invalidateQueries({ queryKey: adminKeys.avtonetState });
     },
   });
 }
@@ -512,7 +761,7 @@ export function useRunSourceScrape() {
     },
     onSuccess: (_data, source) => {
       qc.invalidateQueries({ queryKey: adminKeys.scraperStatus });
-      qc.invalidateQueries({ queryKey: adminKeys.listings });
+      qc.invalidateQueries({ queryKey: adminKeys.listingsRoot });
       if (
         source === "bolha.com" ||
         source === "bolha.lookahead" ||
@@ -523,6 +772,14 @@ export function useRunSourceScrape() {
         qc.invalidateQueries({ queryKey: adminKeys.bolhaAdStates });
         qc.invalidateQueries({ queryKey: adminKeys.bolhaAds });
       }
+      if (
+        source === "avto.net" ||
+        source === "avto.net.lookahead" ||
+        source === "avto.net.scout"
+      ) {
+        qc.invalidateQueries({ queryKey: adminKeys.avtonetAds });
+        qc.invalidateQueries({ queryKey: adminKeys.avtonetState });
+      }
     },
   });
 }
@@ -532,6 +789,17 @@ export function useMatchBolhaAd() {
     mutationFn: async (adId: number) => {
       const { data } = await api.post<BolhaAdMatchResponse>(
         `/admin/bolha/ads/${adId}/match`,
+      );
+      return data;
+    },
+  });
+}
+
+export function useMatchAvtonetAd() {
+  return useMutation({
+    mutationFn: async (adId: number) => {
+      const { data } = await api.post<AvtonetAdMatchResponse>(
+        `/admin/avtonet/ads/${adId}/match`,
       );
       return data;
     },
@@ -561,95 +829,161 @@ function wsUrlFor(path: string): string {
   return `${proto}//${window.location.host}${path}`;
 }
 
+// One admin scraper WebSocket for the whole tab. React StrictMode runs
+// mount → cleanup → mount back-to-back in dev; debouncing teardown avoids
+// closing the socket between those passes (which made Vite's ws proxy log
+// write EPIPE when the backend kept sending status pings).
+const scraperLiveBus = (() => {
+  let refcount = 0;
+  let socket: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let status: ScraperStatus | null = null;
+  let events: ScraperEvent[] = [];
+  let socketConnected = false;
+  const listeners = new Set<() => void>();
+
+  const notify = () => {
+    for (const listener of listeners) {
+      listener();
+    }
+  };
+
+  const appendEvent = (incoming: ScraperEvent) => {
+    if (events.some((existing) => existing.id === incoming.id)) {
+      return;
+    }
+    const next = events.concat(incoming);
+    events =
+      next.length > MAX_LIVE_EVENTS
+        ? next.slice(next.length - MAX_LIVE_EVENTS)
+        : next;
+  };
+
+  const handleMessage = (msg: WsMessage) => {
+    if (msg.kind === "snapshot") {
+      status = msg.status;
+      events = msg.events.slice(-MAX_LIVE_EVENTS);
+      for (const ev of events) {
+        notifyScraperEventListeners(ev);
+      }
+    } else if (msg.kind === "event") {
+      notifyScraperEventListeners(msg.event);
+      appendEvent(msg.event);
+    } else if (msg.kind === "status") {
+      status = msg.status;
+    }
+    notify();
+  };
+
+  const connect = () => {
+    if (refcount === 0 || socket) return;
+    const ws = new WebSocket(wsUrlFor("/api/admin/scraper/ws"));
+    socket = ws;
+
+    ws.onopen = () => {
+      if (ws !== socket) return;
+      socketConnected = true;
+      notify();
+    };
+    ws.onclose = () => {
+      if (ws !== socket) return;
+      socketConnected = false;
+      socket = null;
+      notify();
+      if (refcount > 0) {
+        reconnectTimer = setTimeout(connect, 1500);
+      }
+    };
+    ws.onerror = () => {
+      // onclose handles reconnect.
+    };
+    ws.onmessage = (e) => {
+      if (ws !== socket) return;
+      try {
+        handleMessage(JSON.parse(e.data) as WsMessage);
+      } catch {
+        // ignore malformed messages
+      }
+    };
+  };
+
+  const disconnect = () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    const ws = socket;
+    socket = null;
+    socketConnected = false;
+    if (ws && ws.readyState <= WebSocket.OPEN) {
+      ws.close();
+    }
+    notify();
+  };
+
+  return {
+    subscribe(listener: () => void) {
+      if (disconnectTimer) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+      }
+      refcount += 1;
+      listeners.add(listener);
+      if (refcount === 1) {
+        connect();
+      }
+      listener();
+      return () => {
+        listeners.delete(listener);
+        refcount -= 1;
+        if (refcount === 0) {
+          disconnectTimer = setTimeout(() => {
+            disconnectTimer = null;
+            if (refcount === 0) {
+              disconnect();
+            }
+          }, 0);
+        }
+      };
+    },
+    getStatus: () => status,
+    getEvents: () => events,
+    getSocketConnected: () => socketConnected,
+    clearEvents() {
+      events = [];
+      notify();
+    },
+  };
+})();
+
 export function useScraperLive(enabled: boolean): ScraperLive {
-  const [status, setStatus] = useState<ScraperStatus | null>(null);
-  const [events, setEvents] = useState<ScraperEvent[]>([]);
-  const [socketConnected, setSocketConnected] = useState(false);
+  const [, setTick] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
-
-    // All state for this connection lifecycle is closure-scoped so that
-    // stale handlers from a previous effect run (React 19 StrictMode mounts
-    // every effect twice in dev) can't touch the current socket or trigger
-    // a reconnect cascade. The old bug: an old socket's onclose would fire
-    // after the new mount, null out the shared ref, and schedule another
-    // connect — leaving multiple live sockets all delivering the same
-    // events to setEvents, multiplying every incoming heartbeat.
-    let alive = true;
-    let socket: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const connect = () => {
-      if (!alive) return;
-      const ws = new WebSocket(wsUrlFor("/api/admin/scraper/ws"));
-      socket = ws;
-
-      ws.onopen = () => {
-        if (!alive || ws !== socket) return;
-        setSocketConnected(true);
-      };
-      ws.onclose = () => {
-        if (!alive || ws !== socket) return;
-        setSocketConnected(false);
-        socket = null;
-        reconnectTimer = setTimeout(connect, 1500);
-      };
-      ws.onerror = () => {
-        // onclose will follow and handle reconnect.
-      };
-      ws.onmessage = (e) => {
-        if (!alive || ws !== socket) return;
-        try {
-          const msg = JSON.parse(e.data) as WsMessage;
-          if (msg.kind === "snapshot") {
-            setStatus(msg.status);
-            const snapshot = msg.events.slice(-MAX_LIVE_EVENTS);
-            setEvents(snapshot);
-            for (const ev of snapshot) {
-              notifyScraperEventListeners(ev);
-            }
-          } else if (msg.kind === "event") {
-            const incoming = msg.event;
-            notifyScraperEventListeners(incoming);
-            setEvents((prev) => {
-              // Defensive de-dupe: server NOTIFY occasionally fans out the
-              // same event through multiple paths during reconnects.
-              if (prev.some((existing) => existing.id === incoming.id)) {
-                return prev;
-              }
-              const next = prev.concat(incoming);
-              return next.length > MAX_LIVE_EVENTS
-                ? next.slice(next.length - MAX_LIVE_EVENTS)
-                : next;
-            });
-          } else if (msg.kind === "status") {
-            setStatus(msg.status);
-          }
-        } catch {
-          // ignore malformed messages
-        }
-      };
-    };
-
-    connect();
-
-    return () => {
-      alive = false;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      const ws = socket;
-      socket = null;
-      if (ws && ws.readyState <= WebSocket.OPEN) {
-        ws.close();
-      }
-      setSocketConnected(false);
-    };
+    return scraperLiveBus.subscribe(() => {
+      setTick((n) => n + 1);
+    });
   }, [enabled]);
 
-  const clearEvents = useCallback(() => setEvents([]), []);
+  const clearEvents = useCallback(() => {
+    scraperLiveBus.clearEvents();
+  }, []);
 
-  return { status, events, socketConnected, clearEvents };
+  if (!enabled) {
+    return {
+      status: null,
+      events: [],
+      socketConnected: false,
+      clearEvents,
+    };
+  }
+
+  return {
+    status: scraperLiveBus.getStatus(),
+    events: scraperLiveBus.getEvents(),
+    socketConnected: scraperLiveBus.getSocketConnected(),
+    clearEvents,
+  };
 }

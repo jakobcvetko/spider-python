@@ -31,6 +31,29 @@ class Settings(BaseSettings):
         default="spider-bot/0.1 (+https://example.com)",
         alias="SCRAPER_USER_AGENT",
     )
+    avtonet_lookahead_start_id: int = Field(
+        default=22_421_224,
+        alias="AVTONET_LOOKAHEAD_START_ID",
+    )
+    avtonet_lookahead_batch_size: int = Field(
+        default=20,
+        alias="AVTONET_LOOKAHEAD_BATCH_SIZE",
+    )
+    avtonet_probe_delay_seconds: float = Field(
+        default=0.0,
+        alias="AVTONET_PROBE_DELAY_SECONDS",
+    )
+    avtonet_lookahead_idle_seconds: float = Field(
+        default=5.0,
+        alias="AVTONET_LOOKAHEAD_IDLE_SECONDS",
+    )
+    scraperapi_api_key: str | None = Field(default=None, alias="SCRAPERAPI_API_KEY")
+    scraperapi_premium: bool = Field(default=False, alias="SCRAPERAPI_PREMIUM")
+    scraperapi_render: bool = Field(default=False, alias="SCRAPERAPI_RENDER")
+    scraperapi_country_code: str | None = Field(
+        default=None,
+        alias="SCRAPERAPI_COUNTRY_CODE",
+    )
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
     telegram_webhook_secret: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET")
     telegram_webhook_base_url: str | None = Field(
@@ -48,6 +71,10 @@ class Settings(BaseSettings):
     @property
     def telegram_enabled(self) -> bool:
         return bool(self.telegram_bot_token)
+
+    @property
+    def scraperapi_enabled(self) -> bool:
+        return bool(self.scraperapi_api_key)
 
 
 @lru_cache

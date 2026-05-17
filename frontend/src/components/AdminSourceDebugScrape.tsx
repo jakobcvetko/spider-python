@@ -24,6 +24,9 @@ const KIND_COLORS: Record<string, string> = {
   trigger_skipped: 'text-amber-700',
   bolha_progressive_tick: 'text-fuchsia-700',
   bolha_scout_done: 'text-sky-700',
+  avtonet_progress_tick: 'text-fuchsia-700',
+  avtonet_scout_done: 'text-sky-700',
+  avtonet_ad_update: 'text-cyan-700',
 }
 
 function fmtTs(ts: number): string {
@@ -61,6 +64,21 @@ function eventMatchesSource(ev: ScraperEvent, sourceName: string): boolean {
     return true
   }
   if (ev.kind === 'bolha_scout_done' && sourceName === 'bolha.com') {
+    return true
+  }
+  if (
+    ev.kind === 'avtonet_progress_tick' &&
+    sourceName === 'avto.net' &&
+    (ev.source === 'avto.net.lookahead' ||
+      ev.source === 'avto.net.scout' ||
+      ev.source === 'avto.net')
+  ) {
+    return true
+  }
+  if (ev.kind === 'avtonet_scout_done' && sourceName === 'avto.net') {
+    return true
+  }
+  if (ev.kind === 'avtonet_ad_update' && sourceName === 'avto.net') {
     return true
   }
   return false

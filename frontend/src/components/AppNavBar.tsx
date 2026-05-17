@@ -3,12 +3,19 @@ import type { ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 
 import { AppLogo } from './AppLogo'
+import type { UserAccountMenuLayout } from './UserAccountMenu'
 
 const NAV_LINK =
   'rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-zinc-100'
 
 function navLinkClass(isActive: boolean) {
   return `${NAV_LINK} ${isActive ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-600'}`
+}
+
+const MOBILE_NAV_LINK = `${NAV_LINK} text-base py-3`
+
+function mobileNavLinkClass(isActive: boolean) {
+  return `${MOBILE_NAV_LINK} ${isActive ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-700'}`
 }
 
 export type NavLinkItem = {
@@ -30,6 +37,13 @@ export type NavGroupItem = {
 }
 
 export type NavItem = NavLinkItem | NavGroupItem
+
+export type NavTrailingContext = {
+  onNavigate: () => void
+  layout: UserAccountMenuLayout
+}
+
+export type NavTrailing = (ctx: NavTrailingContext) => ReactNode
 
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -129,25 +143,25 @@ function NavGroupMobile({
   const active = item.isActive(location.pathname)
 
   return (
-    <div className="md:hidden">
+    <div>
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className={`flex w-full items-center justify-between ${navLinkClass(active)}`}
+        className={`flex w-full items-center justify-between ${mobileNavLinkClass(active)}`}
         aria-expanded={expanded}
       >
         {item.label}
         <Chevron open={expanded} />
       </button>
       {expanded && (
-        <div className="ml-2 mt-1 flex flex-col gap-0.5 border-l border-zinc-200 pl-2">
+        <div className="ml-3 mt-1 flex flex-col gap-0.5 border-l-2 border-zinc-200 pl-3">
           {item.children.map((child) => (
             <NavLink
               key={child.to}
               to={child.to}
               onClick={onNavigate}
               className={({ isActive: linkActive }) =>
-                navLinkClass(child.isActive(location.pathname) || linkActive)
+                mobileNavLinkClass(child.isActive(location.pathname) || linkActive)
               }
             >
               {child.label}
@@ -169,7 +183,7 @@ export function AppNavBar({
   logoTo: string
   logoVariant?: 'admin'
   items: NavItem[]
-  trailing: ReactNode
+  trailing: NavTrailing
   onNavigate?: () => void
 }) {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -236,40 +250,58 @@ export function AppNavBar({
               </svg>
             )}
           </button>
-          {trailing}
+          <div className="hidden md:block">
+            {trailing({ onNavigate: closeMenus, layout: 'dropdown' })}
+          </div>
         </div>
       </div>
 
       {mobileOpen && (
-        <>
-          <button
-            type="button"
-            className="fixed inset-0 z-30 bg-zinc-900/20 md:hidden"
-            aria-label="Close menu"
-            onClick={closeMobile}
-          />
-          <nav
-            id="app-mobile-nav"
-            className="relative z-40 mt-3 flex flex-col gap-0.5 md:hidden"
-            aria-label="Main"
-          >
-            {items.map((item) =>
-              item.type === 'link' ? (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  onClick={closeMobile}
-                  className={({ isActive }) => navLinkClass(isActive)}
-                >
-                  {item.label}
-                </NavLink>
-              ) : (
-                <NavGroupMobile key={item.label} item={item} onNavigate={closeMobile} />
-              ),
-            )}
+        <div
+          id="app-mobile-nav"
+          className="fixed inset-0 z-50 flex flex-col bg-white md:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation menu"
+        >
+          <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+            <AppLogo to={logoTo} variant={logoVariant} onClick={closeMobile} />
+            <button
+              type="button"
+              className="rounded-lg p-2 text-zinc-600 hover:bg-zinc-100"
+              aria-label="Close menu"
+              onClick={closeMobile}
+            >
+              <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+              </svg>
+            </button>
+          </div>
+
+          <nav className="flex-1 overflow-y-auto px-4 py-4" aria-label="Main">
+            <div className="flex flex-col gap-1">
+              {items.map((item) =>
+                item.type === 'link' ? (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    onClick={closeMobile}
+                    className={({ isActive }) => mobileNavLinkClass(isActive)}
+                  >
+                    {item.label}
+                  </NavLink>
+                ) : (
+                  <NavGroupMobile key={item.label} item={item} onNavigate={closeMobile} />
+                ),
+              )}
+            </div>
           </nav>
-        </>
+
+          <div className="border-t border-zinc-200 px-4 py-4">
+            {trailing({ onNavigate: closeMobile, layout: 'stacked' })}
+          </div>
+        </div>
       )}
     </header>
   )

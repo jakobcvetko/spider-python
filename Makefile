@@ -3,7 +3,7 @@ MAKEFLAGS += --no-print-directory
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev be fe migrate migration db-up db-down db-shell db-reset stop \
-	bolha\:lookahead bolha\:backfill bolha\:scout avtonet matcher
+	bolha\:lookahead bolha\:backfill bolha\:scout avtonet avtonet\:lookahead avtonet\:scout matcher
 
 help: ## Show this help message
 	@printf "\n\033[1mSpider — dev commands\033[0m\n\n"
@@ -11,6 +11,9 @@ help: ## Show this help message
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:lookahead" "Scout anchor, then run Bolha lookahead loop"
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:backfill" "Run Bolha backfill scraper worker only"
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:scout" "Find Bolha last_working id (one-shot) and exit"
+	@printf "  \033[36m%-12s\033[0m %s\n" "avtonet" "Probe avto.net detail IDs (blocking test)"
+	@printf "  \033[36m%-12s\033[0m %s\n" "avtonet:lookahead" "Scout anchor, then run avto.net lookahead loop"
+	@printf "  \033[36m%-12s\033[0m %s\n" "avtonet:scout" "Find avto.net last_working id (one-shot) and exit"
 	@printf "  \033[36m%-12s\033[0m %s\n" "matcher" "Run matcher worker (listing -> scraper matches)"
 	@printf "\nExamples:\n  make install        # one-time setup\n  make dev            # run everything\n  make bolha:lookahead\n  make migration name=\"add foo column\"\n\n"
 
@@ -58,8 +61,14 @@ bolha\:backfill: ## Run Bolha backfill scraper worker only
 bolha\:scout: ## Find Bolha last_working id via gallop+binary search (exits when done)
 	cd backend && uv run python -m scraper.worker --sources bolha.scout
 
-avtonet: ## Placeholder — avto.net-only worker (not wired yet)
-	@echo "Placeholder: avto.net standalone worker is not wired yet. Use \`make bolha:lookahead\` / \`make bolha:backfill\` for Bolha."
+avtonet: ## Probe avto.net detail IDs (blocking test; default anchor 22421224)
+	cd backend && uv run python -m scraper.sources.avto_net_lookahead --start-id 22421224 --count 5
+
+avtonet\:lookahead: ## Scout anchor, then run avto.net lookahead loop
+	cd backend && uv run python -m scraper.worker --sources avto.net.lookahead
+
+avtonet\:scout: ## Find avto.net last_working id via gallop+binary search (exits when done)
+	cd backend && uv run python -m scraper.worker --sources avto.net.scout
 
 matcher: ## Run matcher worker (processes listing match jobs via NOTIFY)
 	cd backend && uv run python -m matcher.worker
