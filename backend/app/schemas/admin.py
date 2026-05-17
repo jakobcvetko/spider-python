@@ -65,6 +65,16 @@ class AdminListingOut(BaseModel):
     published_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    matches_count: int = 0
+
+
+class AdminListingMatchOut(BaseModel):
+    scraper_id: uuid.UUID
+    scraper_name: str
+    user_email: EmailStr
+    bolha_enabled: bool
+    avtonet_enabled: bool
+    matched_at: datetime
 
 
 class BolhaProgressiveRow(BaseModel):

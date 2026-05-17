@@ -4,13 +4,13 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
-from sqlalchemy import select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.listings import listing_default_order
 from app.avtonet_ads_serialize import avtonet_ad_to_out as _avtonet_ad_to_out
 from app.bolha_ads_serialize import bolha_ad_to_out as _bolha_ad_to_out
 from app.listing_times import listing_times_by_external_ids
@@ -22,11 +22,14 @@ from app.models import (
     AvtonetScrapeMeta,
     BolhaAd,
     Listing,
+    Scraper,
+    ScraperMatch,
     User,
 )
 from app.models.avtonet_ad import AD_STATUS_SUCCESS as AVTONET_AD_STATUS_SUCCESS
 from app.models.bolha_ad import AD_STATUS_SUCCESS
 from app.schemas.admin import (
+    AdminListingMatchOut,
     AdminListingOut,
     AdminUserOut,
     AvtonetAdMatchResponse,
@@ -75,18 +78,68 @@ def _build_status(recent_events_limit: int = 50) -> ScraperStatus:
     )
 
 
+def _listing_to_admin_out(listing: Listing, matches_count: int) -> AdminListingOut:
+    base = AdminListingOut.model_validate(listing)
+    return base.model_copy(update={"matches_count": matches_count})
+
+
 @router.get("/listings", response_model=list[AdminListingOut])
 async def admin_list_listings(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
     source: str | None = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=200),
-) -> list[Listing]:
-    stmt = select(Listing).order_by(*listing_default_order()).limit(limit)
+    limit: int = Query(default=500, ge=1, le=500),
+) -> list[AdminListingOut]:
+    matches_count_sq = (
+        select(func.count())
+        .select_from(ScraperMatch)
+        .where(ScraperMatch.listing_id == Listing.id)
+        .correlate(Listing)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(Listing, matches_count_sq.label("matches_count"))
+        .order_by(desc(Listing.created_at))
+        .limit(limit)
+    )
     if source is not None:
         stmt = stmt.where(Listing.source == source)
     result = await db.execute(stmt)
-    return list(result.scalars().all())
+    return [
+        _listing_to_admin_out(listing, int(matches_count or 0))
+        for listing, matches_count in result.all()
+    ]
+
+
+@router.get("/listings/{listing_id}/matches", response_model=list[AdminListingMatchOut])
+async def admin_listing_matches(
+    listing_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> list[AdminListingMatchOut]:
+    listing = await db.get(Listing, listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    stmt = (
+        select(ScraperMatch, Scraper, User)
+        .join(Scraper, Scraper.id == ScraperMatch.scraper_id)
+        .join(User, User.id == Scraper.user_id)
+        .where(ScraperMatch.listing_id == listing_id)
+        .order_by(ScraperMatch.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    return [
+        AdminListingMatchOut(
+            scraper_id=scraper.id,
+            scraper_name=scraper.name,
+            user_email=user.email,
+            bolha_enabled=scraper.bolha_enabled,
+            avtonet_enabled=scraper.avtonet_enabled,
+            matched_at=match.created_at,
+        )
+        for match, scraper, user in result.all()
+    ]
 
 
 @router.get("/users", response_model=list[AdminUserOut])

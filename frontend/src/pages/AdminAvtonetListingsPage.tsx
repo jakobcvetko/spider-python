@@ -7,7 +7,7 @@ export default function AdminAvtonetListingsPage() {
       <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight">Avtonet listings</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Latest 100 avto.net listings by ad ID (highest first).
+          Latest avto.net listings (newest ingested first).
         </p>
       </header>
       <AdminListingsTable source={AVTONET_LISTING_SOURCE} />

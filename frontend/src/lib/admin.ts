@@ -59,8 +59,19 @@ export type AdminListing = {
   image_url: string | null;
   year: number | null;
   mileage_km: number | null;
+  published_at: string | null;
   created_at: string;
   updated_at: string;
+  matches_count: number;
+};
+
+export type AdminListingMatch = {
+  scraper_id: string;
+  scraper_name: string;
+  user_email: string;
+  bolha_enabled: boolean;
+  avtonet_enabled: boolean;
+  matched_at: string;
 };
 
 export const adminKeys = {
@@ -833,10 +844,8 @@ function notifyScraperEventListeners(ev: ScraperEvent): void {
 export const BOLHA_LISTING_SOURCE = "bolha.com";
 export const AVTONET_LISTING_SOURCE = "avto.net";
 
-export function adminListingsQueryKey(source?: string) {
-  return source
-    ? ([...adminKeys.listingsRoot, source] as const)
-    : adminKeys.listingsRoot;
+export function adminListingsQueryKey(source?: string, limit?: number) {
+  return [...adminKeys.listingsRoot, source ?? "all", limit ?? 500] as const;
 }
 
 export function useAdminListings(
@@ -844,9 +853,9 @@ export function useAdminListings(
   options?: { source?: string; limit?: number },
 ) {
   const source = options?.source;
-  const limit = options?.limit ?? 100;
+  const limit = options?.limit ?? 500;
   return useQuery<AdminListing[]>({
-    queryKey: adminListingsQueryKey(source),
+    queryKey: adminListingsQueryKey(source, limit),
     queryFn: async () => {
       const { data } = await api.get<AdminListing[]>("/admin/listings", {
         params: { limit, ...(source ? { source } : {}) },
@@ -855,6 +864,22 @@ export function useAdminListings(
     },
     enabled,
     refetchInterval: 30_000,
+  });
+}
+
+export function useAdminListingMatches(
+  listingId: string | null,
+  enabled: boolean,
+) {
+  return useQuery<AdminListingMatch[]>({
+    queryKey: [...adminKeys.listingsRoot, "matches", listingId] as const,
+    queryFn: async () => {
+      const { data } = await api.get<AdminListingMatch[]>(
+        `/admin/listings/${listingId}/matches`,
+      );
+      return data;
+    },
+    enabled: enabled && !!listingId,
   });
 }
 
