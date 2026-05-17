@@ -6,11 +6,11 @@ from app.models.base import Base, TimestampMixin
 
 AD_STATUS_PENDING = "pending"
 AD_STATUS_SUCCESS = "success"
+# Legacy rows may still have "removed"; new scrapes use pending for empty slots.
 AD_STATUS_REMOVED = "removed"
 
 SCRAPE_RESULT_SUCCESS = "success"
 SCRAPE_RESULT_EMPTY = "empty"
-SCRAPE_RESULT_REMOVED = "removed"
 SCRAPE_RESULT_ERROR = "error"
 
 

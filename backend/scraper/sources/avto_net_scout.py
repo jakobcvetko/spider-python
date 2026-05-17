@@ -12,22 +12,21 @@ from app.database import SessionLocal
 from app.scraper_events import make_event
 from scraper.base import ScrapedItem
 from scraper.sources.avto_net_common import (
+    LISTING_SOURCE,
     SCOUT_GALLOP_STEP,
     SCOUT_MAX_ID_SPAN,
     SCOUT_MAX_PROBES,
     SCOUT_PROBE_DELAY_SECONDS,
     SCOUT_REFINE_STEP,
-    ProbeKind,
 )
 from scraper.sources.avtonet_registry import (
+    AvtonetProbeOutcome,
     EmitFn,
-    LISTING_SOURCE,
     get_meta,
-    is_known_probe_kind,
     max_numeric_listing_id,
     meta_begin_batch,
     meta_set_last_working,
-    probe_ad_id,
+    scout_probe_ad_id,
 )
 
 log = logging.getLogger(__name__)
@@ -87,16 +86,16 @@ class AvtoNetScoutSource:
             settings.avtonet_lookahead_start_id,
         )
 
-        kind = await self._probe(db, client, emit, state, seed)
-        if kind is None:
+        seed_outcome = await self._probe(db, client, emit, state, seed)
+        if seed_outcome is None:
             await db.commit()
             raise RuntimeError(f"avto.net scout: cannot probe seed id {seed}")
 
-        if not is_known_probe_kind(kind):
+        if not seed_outcome.confirmed:
             log.info(
-                "avto.net scout: seed %s is %s; searching downward for last known id",
+                "avto.net scout: seed %s is empty (%s); searching downward for last known id",
                 seed,
-                kind,
+                seed_outcome.scrape_result,
             )
             lo_known = await self._binary_search_known(
                 db, client, emit, state, lo=0, hi=seed
@@ -104,7 +103,8 @@ class AvtoNetScoutSource:
             if lo_known <= 0:
                 await db.commit()
                 raise RuntimeError(
-                    f"avto.net scout: no known id below seed {seed} (got {kind})"
+                    f"avto.net scout: no known id below seed {seed} "
+                    f"(got {seed_outcome.scrape_result})"
                 )
             state.lo = lo_known
             state.hi = seed
@@ -166,13 +166,13 @@ class AvtoNetScoutSource:
         emit: EmitFn,
         state: _ScoutState,
         ad_id: int,
-    ) -> ProbeKind | None:
+    ) -> AvtonetProbeOutcome | None:
         if state.probe_count >= SCOUT_MAX_PROBES:
             return None
         state.probe_count += 1
         if state.probe_count > 1:
             await asyncio.sleep(SCOUT_PROBE_DELAY_SECONDS)
-        return await probe_ad_id(
+        return await scout_probe_ad_id(
             client,
             db,
             ad_id,
@@ -199,16 +199,16 @@ class AvtoNetScoutSource:
                 )
                 return False
             candidate = state.lo + step
-            kind = await self._probe(db, client, emit, state, candidate)
-            if kind is None:
+            outcome = await self._probe(db, client, emit, state, candidate)
+            if outcome is None:
                 return False
-            if is_known_probe_kind(kind):
+            if outcome.confirmed:
                 state.lo = candidate
                 step = min(step * 2, SCOUT_MAX_ID_SPAN)
                 continue
             state.hi = candidate
             log.info(
-                "avto.net scout: gallop bracket [%s, %s] (first unknown at %s)",
+                "avto.net scout: gallop bracket [%s, %s] (first empty at %s)",
                 state.lo,
                 state.hi,
                 candidate,
@@ -224,10 +224,10 @@ class AvtoNetScoutSource:
     ) -> None:
         while state.hi - state.lo > SCOUT_REFINE_STEP:
             candidate = state.lo + SCOUT_REFINE_STEP
-            kind = await self._probe(db, client, emit, state, candidate)
-            if kind is None:
+            outcome = await self._probe(db, client, emit, state, candidate)
+            if outcome is None:
                 return
-            if is_known_probe_kind(kind):
+            if outcome.confirmed:
                 state.lo = candidate
             else:
                 state.hi = candidate
@@ -245,10 +245,10 @@ class AvtoNetScoutSource:
     ) -> int:
         while hi - lo > 1:
             mid = (lo + hi) // 2
-            kind = await self._probe(db, client, emit, state, mid)
-            if kind is None:
+            outcome = await self._probe(db, client, emit, state, mid)
+            if outcome is None:
                 break
-            if is_known_probe_kind(kind):
+            if outcome.confirmed:
                 lo = mid
             else:
                 hi = mid

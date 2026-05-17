@@ -171,7 +171,12 @@ def _looks_like_active_listing(html: str) -> bool:
     return _title_looks_like_listing(title) if title else False
 
 
-def parse_detail_page(html: str, ad_id: int) -> ScrapedItem | None:
+def parse_detail_page(
+    html: str,
+    ad_id: int,
+    *,
+    fallback_title: str | None = None,
+) -> ScrapedItem:
     tree = HTMLParser(html)
     title = None
     og = tree.css_first('meta[property="og:title"]')
@@ -183,8 +188,13 @@ def parse_detail_page(html: str, ad_id: int) -> ScrapedItem | None:
     if not title:
         t = tree.css_first("title")
         title = t.text(strip=True) if t else None
-    if not title:
-        return None
+    if not title or _title_indicates_missing(title):
+        fb = (fallback_title or "").strip()
+        title = (
+            fb
+            if fb and not _title_indicates_missing(fb)
+            else f"Avto.net oglas {ad_id}"
+        )
 
     price_cents: int | None = None
     currency: str | None = "EUR"

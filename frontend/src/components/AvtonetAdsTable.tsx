@@ -3,9 +3,10 @@ import { Fragment, useEffect, useState } from 'react'
 import {
   avtonetAdUrl,
   AVTONET_ADS_TOP_LIMIT,
+  AVTONET_LOOKAHEAD_COUNT,
   useAvtonetAds,
   useAvtonetAdsWsSync,
-  useAvtonetPivotFromWs,
+  useAvtonetScrapeState,
   useMatchAvtonetAd,
   useScraperLive,
   type AvtonetAdRow,
@@ -41,8 +42,6 @@ function statusTone(status: string): string {
       return 'bg-amber-50 text-amber-800 ring-amber-200'
     case 'success':
       return 'bg-emerald-50 text-emerald-800 ring-emerald-200'
-    case 'removed':
-      return 'bg-rose-50 text-rose-800 ring-rose-200'
     default:
       return 'bg-zinc-100 text-zinc-600 ring-zinc-300'
   }
@@ -54,8 +53,6 @@ function scrapeSquareFill(result: string): string {
       return 'bg-emerald-500'
     case 'empty':
       return 'bg-amber-500'
-    case 'removed':
-      return 'bg-rose-500'
     case 'error':
       return 'bg-red-500'
     default:
@@ -137,13 +134,18 @@ type RowHighlight = 'last-id' | 'lookahead' | null
 function adRowHighlight(
   adId: number,
   lastWorkingId: number,
-  scanAnchorId: number,
   lookaheadCount: number,
+  status: string,
 ): RowHighlight {
-  const pivot = lastWorkingId > 0 ? lastWorkingId : scanAnchorId
-  if (pivot <= 0) return null
-  if (adId === pivot) return 'last-id'
-  if (adId > pivot && adId <= pivot + lookaheadCount) return 'lookahead'
+  if (lastWorkingId <= 0) return null
+  if (adId === lastWorkingId) return 'last-id'
+  if (
+    status === 'pending' &&
+    adId > lastWorkingId &&
+    adId <= lastWorkingId + lookaheadCount
+  ) {
+    return 'lookahead'
+  }
   return null
 }
 
@@ -405,8 +407,8 @@ type AvtonetAdsTableProps = {
 
 export function AvtonetAdsTable({ enabled, limit = AVTONET_ADS_TOP_LIMIT }: AvtonetAdsTableProps) {
   const q = useAvtonetAds(enabled, limit)
+  const scrapeState = useAvtonetScrapeState(enabled)
   const live = useScraperLive(enabled)
-  const pivot = useAvtonetPivotFromWs(enabled, live.events)
   useAvtonetAdsWsSync(enabled, limit, live.events, q.isSuccess, live.socketConnected)
   const matchAvtonet = useMatchAvtonetAd()
 
@@ -445,7 +447,8 @@ export function AvtonetAdsTable({ enabled, limit = AVTONET_ADS_TOP_LIMIT }: Avto
   }
   const windowMs = timelineWindowMs(timelineWindow)
   const timelineNow = useTimelineNow()
-  const { lastWorkingId, scanAnchorId, lookaheadCount } = pivot
+  const lastWorkingId = scrapeState.data?.last_working_ad_id ?? 0
+  const lookaheadCount = scrapeState.data?.lookahead_batch_size ?? AVTONET_LOOKAHEAD_COUNT
 
   if (!enabled) return null
 
@@ -533,7 +536,7 @@ export function AvtonetAdsTable({ enabled, limit = AVTONET_ADS_TOP_LIMIT }: Avto
               <span className="size-2.5 rounded-sm bg-amber-500" /> empty
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="size-2.5 rounded-sm bg-rose-500" /> removed
+              <span className="size-2.5 rounded-sm bg-amber-500" /> empty (not there)
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="size-2.5 rounded-sm bg-red-500" /> error
@@ -551,11 +554,11 @@ export function AvtonetAdsTable({ enabled, limit = AVTONET_ADS_TOP_LIMIT }: Avto
             <span className="ml-2 uppercase tracking-wide">Highlight</span>
             <span className="inline-flex items-center gap-1">
               <span className="size-2 rounded-full bg-indigo-400 ring-1 ring-indigo-400/50" />
-              last id
+              last confirmed ({lastWorkingId || '—'})
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="size-2 rounded-full bg-sky-400/90 ring-1 ring-sky-500/35" />
-              lookahead (+{lookaheadCount})
+              pending lookahead (+{lookaheadCount})
             </span>
           </div>
 
@@ -580,8 +583,8 @@ export function AvtonetAdsTable({ enabled, limit = AVTONET_ADS_TOP_LIMIT }: Avto
                   const highlight = adRowHighlight(
                     row.ad_id,
                     lastWorkingId,
-                    scanAnchorId,
                     lookaheadCount,
+                    row.status,
                   )
                   return (
                     <Fragment key={row.ad_id}>

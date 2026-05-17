@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,53 +12,46 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
+from app.matcher_jobs import enqueue_matcher_job
 from app.models.avtonet_ad import (
     AD_STATUS_PENDING,
-    AD_STATUS_REMOVED,
     AD_STATUS_SUCCESS,
     AvtonetAd,
+    SCRAPE_RESULT_EMPTY,
     SCRAPE_RESULT_ERROR,
-    SCRAPE_RESULT_REMOVED,
     SCRAPE_RESULT_SUCCESS,
 )
 from app.models.avtonet_scrape_meta import AvtonetScrapeMeta
 from app.scraper_events import make_event
-from scraper.sources.avto_net_common import (
-    LISTING_SOURCE,
-    SCOUT_HTTP_RETRIES,
-    ProbeKind,
-)
+from scraper.base import get_listing_id, upsert_items
+from scraper.sources.avto_net_common import LISTING_SOURCE, ProbeKind
+from scraper.sources.avto_net_probe import ProbeResult, probe_ad_id as fetch_probe
 
 log = logging.getLogger(__name__)
 
 EmitFn = Any
 
 
-def scrape_result_from_kind(kind: ProbeKind) -> str:
-    if kind == "active":
-        return SCRAPE_RESULT_SUCCESS
-    if kind == "not_found":
-        return SCRAPE_RESULT_REMOVED
-    return SCRAPE_RESULT_ERROR
+@dataclass(frozen=True)
+class AvtonetProbeOutcome:
+    """Result after persisting a probe. Only pending and success row statuses."""
+
+    confirmed: bool
+    status: str
+    scrape_result: str
+    kind: ProbeKind
 
 
 def ad_status_from_scrape_result(result: str) -> str:
     if result == SCRAPE_RESULT_SUCCESS:
         return AD_STATUS_SUCCESS
-    if result == SCRAPE_RESULT_REMOVED:
-        return AD_STATUS_REMOVED
     return AD_STATUS_PENDING
 
 
 def merge_ad_status(current: str, new: str) -> str:
-    # Success is sticky except when the ad is confirmed gone.
-    if new == AD_STATUS_REMOVED:
-        return AD_STATUS_REMOVED
     if new == AD_STATUS_SUCCESS:
         return AD_STATUS_SUCCESS
-    if current == AD_STATUS_SUCCESS:
-        return AD_STATUS_SUCCESS
-    return new
+    return AD_STATUS_PENDING
 
 
 async def get_meta(db: AsyncSession) -> AvtonetScrapeMeta:
@@ -141,33 +136,63 @@ async def record_avtonet_ad_scrape(
         await emit_avtonet_ad_update(emit, row, source=source, scrape_entry=entry)
 
 
-async def record_avtonet_probe(
+async def apply_avtonet_probe(
     db: AsyncSession,
-    ad_id: int,
+    result: ProbeResult,
     *,
     source: str,
-    kind: ProbeKind,
     fetched_at: datetime,
-    http_status: int | None = None,
-    detail: str | None = None,
     emit: EmitFn = None,
-) -> None:
-    result = scrape_result_from_kind(kind)
+    enqueue_matcher: bool = True,
+) -> AvtonetProbeOutcome:
+    """Persist probe outcome: pending = empty/transient, success = listing stored."""
+    if result.kind == "not_found":
+        scrape_result = SCRAPE_RESULT_EMPTY
+        confirmed = False
+    elif result.kind == "active" and result.item is not None:
+        listing_id: uuid.UUID | None = None
+        try:
+            await upsert_items(
+                db, LISTING_SOURCE, [result.item], commit=False
+            )
+            listing_id = await get_listing_id(db, LISTING_SOURCE, str(result.ad_id))
+            if listing_id is not None and enqueue_matcher:
+                await enqueue_matcher_job(db, listing_id)
+        except Exception:
+            log.exception(
+                "avto.net: listing upsert failed ad_id=%s source=%s",
+                result.ad_id,
+                source,
+            )
+            listing_id = await get_listing_id(db, LISTING_SOURCE, str(result.ad_id))
+
+        if listing_id is not None:
+            scrape_result = SCRAPE_RESULT_SUCCESS
+            confirmed = True
+        else:
+            scrape_result = SCRAPE_RESULT_ERROR
+            confirmed = False
+    else:
+        scrape_result = SCRAPE_RESULT_ERROR
+        confirmed = False
+
+    status = ad_status_from_scrape_result(scrape_result)
     await record_avtonet_ad_scrape(
         db,
-        ad_id,
+        result.ad_id,
         source=source,
-        result=result,
+        result=scrape_result,
         fetched_at=fetched_at,
-        http_status=http_status,
-        detail=detail,
+        http_status=result.http_status,
+        detail=result.detail,
         emit=emit,
     )
-
-
-def is_known_probe_kind(kind: ProbeKind) -> bool:
-    """IDs that exist as real detail pages (scout frontier is last known)."""
-    return kind == "active"
+    return AvtonetProbeOutcome(
+        confirmed=confirmed,
+        status=status,
+        scrape_result=scrape_result,
+        kind=result.kind,
+    )
 
 
 async def max_numeric_listing_id(db: AsyncSession) -> int:
@@ -185,8 +210,8 @@ async def max_numeric_listing_id(db: AsyncSession) -> int:
     return int(v) if v is not None else 0
 
 
-async def probe_ad_id(
-    client,
+async def scout_probe_ad_id(
+    client: httpx.AsyncClient,
     db: AsyncSession,
     ad_id: int,
     *,
@@ -194,9 +219,9 @@ async def probe_ad_id(
     emit: EmitFn = None,
     last_working_ad_id: int = 0,
     settings: Settings | None = None,
-) -> ProbeKind | None:
-    """Probe one ad ID for scout; persist scrape row. Returns None on hard HTTP failure."""
-    from scraper.sources.avto_net_lookahead import probe_ad_id as fetch_probe
+) -> AvtonetProbeOutcome | None:
+    """Probe one ad ID for scout; persist row + listing. None on hard HTTP failure."""
+    from scraper.sources.avto_net_common import SCOUT_HTTP_RETRIES
 
     settings = settings or get_settings()
     now = datetime.now(timezone.utc)
@@ -209,33 +234,33 @@ async def probe_ad_id(
             emit=emit,
             source=source_name,
         )
-        await record_avtonet_probe(
+        outcome = await apply_avtonet_probe(
             db,
-            ad_id,
+            result,
             source=source_name,
-            kind=result.kind,
             fetched_at=now,
-            http_status=result.http_status,
-            detail=result.detail,
             emit=emit,
         )
+        tick_lw = last_working_ad_id
+        if outcome.confirmed:
+            tick_lw = ad_id
         await emit_avtonet_progress_tick(
             emit,
             scraper_name=source_name,
             ad_id=ad_id,
-            last_working_ad_id=last_working_ad_id,
-            outcome=result.kind,
+            last_working_ad_id=tick_lw,
+            outcome=outcome.scrape_result,
             http_status=result.http_status,
         )
         if result.http_status < 0:
             if attempt + 1 < SCOUT_HTTP_RETRIES:
                 continue
             return None
-        if result.kind in ("not_found", "unknown", "redirect") and attempt + 1 < SCOUT_HTTP_RETRIES:
-            continue
+        if result.kind in ("not_found", "unknown", "redirect"):
+            return outcome
         if result.kind in ("cloudflare", "blocked") and attempt + 1 < SCOUT_HTTP_RETRIES:
             continue
-        return result.kind
+        return outcome
 
     return None
 

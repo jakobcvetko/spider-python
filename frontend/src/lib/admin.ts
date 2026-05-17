@@ -540,6 +540,10 @@ export function useAvtonetPivotFromWs(
       if (ev.kind === "avtonet_progress_tick") {
         const lw = ev.data?.last_working_ad_id;
         if (typeof lw === "number") lastWorkingId = lw;
+        if (ev.data?.outcome === "success" && typeof ev.data?.ad_id === "number") {
+          lastWorkingId = Math.max(lastWorkingId, ev.data.ad_id);
+          scanAnchorId = ev.data.ad_id;
+        }
       }
       if (ev.kind === "avtonet_scout_done") {
         const na = ev.data?.new_anchor;

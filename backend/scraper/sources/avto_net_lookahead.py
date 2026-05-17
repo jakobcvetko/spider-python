@@ -6,9 +6,7 @@ import argparse
 import asyncio
 import logging
 import sys
-import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import NoReturn
 
@@ -16,27 +14,22 @@ import httpx
 
 from app.config import Settings, get_settings
 from app.database import SessionLocal
-from app.matcher_jobs import enqueue_matcher_job
-from scraper.avtonet_fetch import fetch_detail_page, fetch_timeout_seconds, resolve_fetch_mode
-from scraper.base import ScrapedItem, get_listing_id, upsert_items
-from scraper.page_fetch import FetchMode, emit_http_trace
+from scraper.avtonet_fetch import fetch_timeout_seconds, resolve_fetch_mode
+from scraper.page_fetch import FetchMode
 from scraper.sources.avto_net_common import (
     LISTING_SOURCE,
     LOOKAHEAD_BATCH_SIZE,
     LOOKAHEAD_IDLE_SECONDS,
     PROBE_DELAY_SECONDS,
-    ProbeKind,
-    classify_detail,
-    detail_url,
-    parse_detail_page,
 )
+from scraper.sources.avto_net_probe import ProbeResult, probe_ad_id
 from scraper.sources.avto_net_scout import run_avtonet_scout
 from scraper.sources.avtonet_registry import (
+    apply_avtonet_probe,
     emit_avtonet_progress_tick,
     get_meta,
     meta_begin_batch,
     meta_set_last_working,
-    record_avtonet_probe,
 )
 
 log = logging.getLogger(__name__)
@@ -45,87 +38,7 @@ SOURCE_NAME = "avto.net.lookahead"
 EmitFn = Callable[..., Awaitable[None]] | None
 
 
-@dataclass
-class ProbeResult:
-    ad_id: int
-    http_status: int
-    kind: ProbeKind
-    detail: str | None
-    item: ScrapedItem | None = None
-    fetch_mode: FetchMode = "direct"
-
-
-async def probe_ad_id(
-    client: httpx.AsyncClient,
-    ad_id: int,
-    *,
-    settings: Settings | None = None,
-    fetch_mode: FetchMode | None = None,
-    emit: EmitFn = None,
-    source: str = SOURCE_NAME,
-) -> ProbeResult:
-    settings = settings or get_settings()
-    mode = resolve_fetch_mode(settings, fetch_mode)
-    url = detail_url(ad_id)
-    t0 = time.perf_counter()
-    try:
-        page = await fetch_detail_page(client, url, settings, fetch_mode=mode)
-    except httpx.HTTPError as e:
-        log.warning("avto.net lookahead: probe %s failed: %s", ad_id, e)
-        elapsed_ms = round((time.perf_counter() - t0) * 1000)
-        await emit_http_trace(
-            emit,
-            source=source,
-            target_url=url,
-            status=-1,
-            elapsed_ms=elapsed_ms,
-            bytes_len=None,
-            fetch_mode=mode,
-        )
-        return ProbeResult(
-            ad_id=ad_id,
-            http_status=-1,
-            kind="http_error",
-            detail=str(e)[:500],
-            fetch_mode=mode,
-        )
-
-    elapsed_ms = round((time.perf_counter() - t0) * 1000)
-    await emit_http_trace(
-        emit,
-        source=source,
-        target_url=url,
-        status=page.status_code,
-        elapsed_ms=elapsed_ms,
-        bytes_len=len(page.text) if page.text else None,
-        fetch_mode=page.fetch_mode,
-    )
-
-    kind, detail = classify_detail(
-        page.text,
-        page.status_code,
-        page.url,
-        page.headers,
-        ad_id=ad_id,
-        document_title=page.document_title,
-    )
-    if page.via_proxy and kind in ("cloudflare", "blocked"):
-        detail = (detail or "") + f" (via {page.fetch_mode})"
-    item: ScrapedItem | None = None
-    if kind == "active":
-        item = parse_detail_page(page.text, ad_id)
-
-    return ProbeResult(
-        ad_id=ad_id,
-        http_status=page.status_code,
-        kind=kind,
-        detail=detail,
-        item=item,
-        fetch_mode=page.fetch_mode,
-    )
-
-
-def _log_probe(result: ProbeResult, *, anchor: int) -> None:
+def _log_probe(result: ProbeResult, *, anchor: int, outcome: str) -> None:
     title = result.item.title[:60] if result.item and result.item.title else ""
     extra = f" title={title!r}" if title else ""
     if result.detail:
@@ -135,7 +48,7 @@ def _log_probe(result: ProbeResult, *, anchor: int) -> None:
         result.ad_id,
         anchor,
         result.http_status,
-        result.kind,
+        outcome,
         extra,
     )
 
@@ -155,9 +68,10 @@ async def run_lookahead_batch(
     settings = settings or get_settings()
     results: list[ProbeResult] = []
     new_anchor = anchor
+    batch_confirmed = False
 
     async def _probe_loop(db) -> None:
-        nonlocal new_anchor
+        nonlocal new_anchor, batch_confirmed
         for offset in range(1, batch_size + 1):
             if offset > 1 and delay_seconds > 0:
                 await asyncio.sleep(delay_seconds)
@@ -169,54 +83,49 @@ async def run_lookahead_batch(
                 settings=settings,
                 fetch_mode=fetch_mode,
                 emit=emit,
+                source=SOURCE_NAME,
             )
             results.append(result)
-            _log_probe(result, anchor=anchor)
             now = datetime.now(timezone.utc)
 
+            tick_last_working = anchor
             if persist and db is not None:
-                await record_avtonet_probe(
+                applied = await apply_avtonet_probe(
                     db,
-                    ad_id,
+                    result,
                     source=SOURCE_NAME,
-                    kind=result.kind,
                     fetched_at=now,
-                    http_status=result.http_status,
-                    detail=result.detail,
                     emit=emit,
                 )
+                _log_probe(result, anchor=anchor, outcome=applied.scrape_result)
+
+                if applied.confirmed:
+                    batch_confirmed = True
+                    new_anchor = ad_id
+                    tick_last_working = ad_id
+                    await meta_set_last_working(db, ad_id)
+                    await db.commit()
+                    log.info(
+                        "avto.net lookahead: success ad_id=%s (anchor was %s), listing stored",
+                        ad_id,
+                        anchor,
+                    )
+                elif result.kind == "not_found":
+                    new_anchor = ad_id
+
                 await emit_avtonet_progress_tick(
                     emit,
                     scraper_name=SOURCE_NAME,
                     ad_id=ad_id,
-                    last_working_ad_id=anchor,
-                    outcome=result.kind,
+                    last_working_ad_id=tick_last_working,
+                    outcome=applied.scrape_result,
                     http_status=result.http_status,
                 )
 
-            if result.kind == "active" and result.item is not None:
-                new_anchor = ad_id
-                if persist and db is not None:
-                    try:
-                        await upsert_items(db, LISTING_SOURCE, [result.item])
-                    except Exception:
-                        log.exception(
-                            "avto.net lookahead: upsert failed ad_id=%s", ad_id
-                        )
-                    listing_id = await get_listing_id(db, LISTING_SOURCE, str(ad_id))
-                    if listing_id is not None:
-                        try:
-                            await enqueue_matcher_job(db, listing_id)
-                        except Exception:
-                            log.exception(
-                                "avto.net lookahead: matcher enqueue failed ad_id=%s",
-                                ad_id,
-                            )
-                    await meta_set_last_working(db, ad_id)
-                break
-
-            if result.kind == "not_found":
-                new_anchor = ad_id
+                if applied.confirmed:
+                    break
+            else:
+                _log_probe(result, anchor=anchor, outcome=result.kind)
 
     if persist:
         async with SessionLocal() as db:
@@ -226,7 +135,7 @@ async def run_lookahead_batch(
     else:
         await _probe_loop(None)
 
-    return new_anchor, results
+    return new_anchor, results, batch_confirmed
 
 
 async def run_lookahead_loop(
@@ -242,24 +151,24 @@ async def run_lookahead_loop(
 ) -> NoReturn:
     settings = settings or get_settings()
     anchor = start_anchor
+    async with SessionLocal() as db:
+        log.info("avto.net lookahead: running initial scout")
+        try:
+            await run_avtonet_scout(db, client, emit)
+        except RuntimeError:
+            log.exception(
+                "avto.net lookahead: initial scout failed; "
+                "continuing with stored anchor"
+            )
+
+        meta = await get_meta(db)
+        stored = int(meta.last_working_ad_id or 0)
+        if stored > 0:
+            anchor = stored
+        elif anchor <= 0:
+            anchor = settings.avtonet_lookahead_start_id
+
     while True:
-        async with SessionLocal() as db:
-            log.info("avto.net lookahead: running initial scout")
-            try:
-                await run_avtonet_scout(db, client, emit)
-            except RuntimeError:
-                log.exception(
-                    "avto.net lookahead: initial scout failed; "
-                    "continuing with stored anchor"
-                )
-
-            meta = await get_meta(db)
-            stored = int(meta.last_working_ad_id or 0)
-            if stored > 0:
-                anchor = stored
-            elif anchor <= 0:
-                anchor = settings.avtonet_lookahead_start_id
-
         log.info(
             "avto.net lookahead: batch anchor=%s probing +1..+%s (delay=%ss) fetch=%s",
             anchor,
@@ -267,7 +176,7 @@ async def run_lookahead_loop(
             delay_seconds,
             resolve_fetch_mode(settings, fetch_mode),
         )
-        anchor, results = await run_lookahead_batch(
+        anchor, results, batch_confirmed = await run_lookahead_batch(
             client,
             anchor=anchor,
             batch_size=batch_size,
@@ -282,8 +191,7 @@ async def run_lookahead_loop(
             log.warning(
                 "avto.net lookahead: entire batch blocked/challenged"
             )
-        batch_resolved = any(r.kind == "active" for r in results)
-        if not batch_resolved:
+        if not batch_confirmed:
             await asyncio.sleep(idle_seconds)
 
 
@@ -379,7 +287,7 @@ async def _run_cli(argv: list[str]) -> int:
             )
             return 0
 
-        new_anchor, results = await run_lookahead_batch(
+        new_anchor, results, _confirmed = await run_lookahead_batch(
             client,
             anchor=anchor,
             batch_size=args.count,

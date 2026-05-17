@@ -43,6 +43,8 @@ async def upsert_items(
     db: AsyncSession,
     source: str,
     items: list[ScrapedItem],
+    *,
+    commit: bool = True,
 ) -> int:
     """Insert items, skipping duplicates by (source, external_id). Returns inserted count."""
     if not items:
@@ -73,7 +75,10 @@ async def upsert_items(
     )
     result = await db.execute(stmt)
     inserted_ids = result.scalars().all()
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     return len(list(inserted_ids))
 
 

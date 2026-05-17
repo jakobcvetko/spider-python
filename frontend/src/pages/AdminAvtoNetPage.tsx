@@ -13,9 +13,8 @@ export default function AdminAvtoNetPage() {
 
       <p className="mb-3 text-sm text-zinc-400">
         Live view of the highest avto.net ad IDs probed by lookahead. Status:{' '}
-        <span className="text-amber-700">pending</span>,{' '}
-        <span className="text-emerald-700">success</span> (listing parsed),{' '}
-        <span className="text-rose-700">removed</span> (404 / gone).
+        <span className="text-amber-700">pending</span> (empty / not stored),{' '}
+        <span className="text-emerald-700">success</span> (listing parsed and stored).
       </p>
 
       {state.data && (
