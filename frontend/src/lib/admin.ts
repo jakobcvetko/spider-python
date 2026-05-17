@@ -79,6 +79,9 @@ export const adminKeys = {
 /** Highest ad_id rows shown on the live bolha_ads registry table. */
 export const BOLHA_ADS_TOP_LIMIT = 200;
 
+/** Control-dash tables hide rows whose latest scrape is older than this. */
+export const CONTROL_DASH_ACTIVE_SCRAPE_MS = 60_000;
+
 /** Bolha HTTP log table on /admin/bolha/http-logs. */
 export const BOLHA_HTTP_LOGS_LIMIT = 100;
 
@@ -99,7 +102,7 @@ export function useBolhaHttpLogs(events: ScraperEvent[]): ScraperEvent[] {
 }
 
 /** Matches backend ``LOOKAHEAD_ADS`` (bolha.lookahead window size). */
-export const BOLHA_LOOKAHEAD_COUNT = 5;
+export const BOLHA_LOOKAHEAD_COUNT = 10;
 
 /** Highest ad_id rows on the live avtonet_ads registry table. */
 export const AVTONET_ADS_TOP_LIMIT = 200;
@@ -122,8 +125,8 @@ export function useAvtonetHttpLogs(events: ScraperEvent[]): ScraperEvent[] {
   }, [events]);
 }
 
-/** Matches backend ``AVTONET_LOOKAHEAD_BATCH_SIZE`` / ``LOOKAHEAD_ADS`` (avtonet band = 5). */
-export const AVTONET_LOOKAHEAD_COUNT = 5;
+/** Matches backend ``AVTONET_LOOKAHEAD_BATCH_SIZE`` / ``LOOKAHEAD_ADS`` (avtonet band = 10). */
+export const AVTONET_LOOKAHEAD_COUNT = 10;
 
 export function useAdminUsers(enabled: boolean) {
   return useQuery<AdminUser[]>({
@@ -184,6 +187,46 @@ export type BolhaAdScrapeEntry = {
   http_status: number | null;
   detail: string | null;
 };
+
+function latestScrapeAtMs(scrapes: BolhaAdScrapeEntry[]): number | null {
+  let latest = -Infinity;
+  for (const s of scrapes) {
+    const t = Date.parse(s.at);
+    if (!Number.isNaN(t) && t > latest) latest = t;
+  }
+  return latest > -Infinity ? latest : null;
+}
+
+/** True when the row's most recent scrape attempt is within ``windowMs`` of ``nowMs``. */
+export function hasRecentScrape(
+  scrapes: BolhaAdScrapeEntry[],
+  nowMs: number,
+  windowMs = CONTROL_DASH_ACTIVE_SCRAPE_MS,
+): boolean {
+  const latest = latestScrapeAtMs(scrapes);
+  if (latest == null) return false;
+  return nowMs - latest <= windowMs;
+}
+
+/**
+ * Bolha/avtonet control-dash: recently scraped rows plus the pinned last-id row
+ * (when present in ``rows``), hard-capped at ``limit``.
+ */
+export function filterControlDashAdsRows<T extends BolhaAdRow>(
+  rows: T[],
+  nowMs: number,
+  limit: number,
+  pinAdId = 0,
+): T[] {
+  return rows
+    .filter(
+      (row) =>
+        (pinAdId > 0 && row.ad_id === pinAdId) ||
+        hasRecentScrape(row.scrapes, nowMs),
+    )
+    .sort((a, b) => b.ad_id - a.ad_id)
+    .slice(0, limit);
+}
 
 export type BolhaAdRow = {
   ad_id: number;

@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 
 import {
   bolhaAdUrl,
   BOLHA_ADS_TOP_LIMIT,
+  filterControlDashAdsRows,
   useBolhaAds,
   useBolhaAdsWsSync,
   useBolhaPivotFromWs,
@@ -514,6 +515,12 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
   const windowMs = timelineWindowMs(timelineWindow)
   const timelineNow = useTimelineNow()
   const { lastWorkingId, scanAnchorId, lookaheadCount } = pivot
+  const pinAdId = lastWorkingId > 0 ? lastWorkingId : scanAnchorId
+  const visibleRows = useMemo(
+    () =>
+      q.data ? filterControlDashAdsRows(q.data, timelineNow, limit, pinAdId) : [],
+    [q.data, timelineNow, limit, pinAdId],
+  )
 
   if (!enabled) return null
 
@@ -525,8 +532,9 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
             bolha_ads
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Top {limit} highest <code className="text-zinc-400">ad_id</code> values. Initial HTTP load,
-            then each scrape pushes over the scraper WebSocket. Scrape log timeline (now on the right).
+            Up to {limit} rows with a scrape in the last minute (highest{' '}
+            <code className="text-zinc-400">ad_id</code> first). Initial HTTP load, then live updates
+            over the scraper WebSocket. Scrape log timeline (now on the right).
           </p>
         </div>
         <p className="text-xs text-zinc-500">
@@ -538,7 +546,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
           ) : null}
           {q.isFetching && !q.isLoading ? 'Syncing… ' : null}
           <span className="font-mono text-zinc-700">
-            {q.data == null ? '…' : `${q.data.length} rows`}
+            {q.data == null ? '…' : `${visibleRows.length} rows`}
           </span>
         </p>
       </div>
@@ -557,7 +565,14 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
         </p>
       )}
 
-      {!q.isLoading && q.data && q.data.length > 0 && (
+      {!q.isLoading && q.data && q.data.length > 0 && visibleRows.length === 0 && (
+        <p className="text-sm text-zinc-500">
+          No ads scraped in the last minute — rows appear here while lookahead or backfill is
+          active.
+        </p>
+      )}
+
+      {!q.isLoading && visibleRows.length > 0 && (
         <>
           <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] text-zinc-500">
             <span className="inline-flex items-center gap-2">
@@ -648,8 +663,8 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 font-mono text-[11px] text-zinc-700">
-                {q.data.map((row, i) => {
-                  const next = q.data![i + 1]
+                {visibleRows.map((row, i) => {
+                  const next = visibleRows[i + 1]
                   const showGap = next != null && idGapCount(row.ad_id, next.ad_id) > 0
                   const highlight = adRowHighlight(
                     row.ad_id,

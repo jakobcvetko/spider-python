@@ -63,7 +63,7 @@ FRONTIER_AD_STATUS_SOURCES = frozenset({"bolha.lookahead", "bolha.scout"})
 BACKFILL_AD_STATUS_SOURCES = frozenset({"bolha.backfill"})
 BACKFILL_PROMOTE_STATUSES = (AD_STATUS_PENDING, AD_STATUS_EMPTY)
 
-LOOKAHEAD_ADS = 5
+LOOKAHEAD_ADS = 10
 LOOKAHEAD_TIMEOUT_SECONDS = 5
 LOOKAHEAD_PROBE_TIMEOUT_SECONDS = 15.0
 # Re-scan listings / homepage occasionally so meta stays aligned with backfill or manual inserts.
@@ -79,8 +79,8 @@ MAX_FALLBACK_IDS_PER_FETCH = BACKFILL_BATCH_SIZE
 
 SCOUT_GALLOP_STEP = 1000
 SCOUT_REFINE_STEP = 100
-# Gallop/refine/binary probe center ± radius in parallel (same width as lookahead).
-SCOUT_PROBE_WINDOW_RADIUS = 2
+# Gallop/refine/binary bracket high bound (max positive offset in scout window).
+SCOUT_PROBE_WINDOW_RADIUS = (LOOKAHEAD_ADS - 1) // 2
 SCOUT_PROBE_DELAY_SECONDS = 0.2
 SCOUT_PROBE_TIMEOUT_SECONDS = LOOKAHEAD_PROBE_TIMEOUT_SECONDS
 SCOUT_MAX_PROBES = 500

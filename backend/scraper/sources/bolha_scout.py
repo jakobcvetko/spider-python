@@ -20,6 +20,7 @@ from scraper.sources.bolha_common import (
     SCOUT_MAX_PROBES,
     SCOUT_PROBE_DELAY_SECONDS,
     SCOUT_PROBE_TIMEOUT_SECONDS,
+    LOOKAHEAD_ADS,
     SCOUT_PROBE_WINDOW_RADIUS,
     SCOUT_REFINE_STEP,
     SCOUT_HTTP_RETRIES,
@@ -222,15 +223,15 @@ class BolhaScoutSource:
         state: _ScoutState,
         center: int,
     ) -> tuple[int | None, bool]:
-        """Probe center±SCOUT_PROBE_WINDOW_RADIUS in parallel.
+        """Probe a LOOKAHEAD_ADS-wide window around *center* in parallel.
 
         Returns (highest_known_id, budget_exhausted). ``highest_known_id`` is None
         when no active/expired listing exists in the window.
         """
-        radius = SCOUT_PROBE_WINDOW_RADIUS
+        half_low = LOOKAHEAD_ADS // 2
         ad_ids = [
             center + offset
-            for offset in range(-radius, radius + 1)
+            for offset in range(-half_low, LOOKAHEAD_ADS - half_low)
             if center + offset > 0
         ]
         n = len(ad_ids)
