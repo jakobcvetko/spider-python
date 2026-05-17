@@ -43,11 +43,11 @@ migration: ## Create new migration. Usage: make migration name="add x"
 	@if [ -z "$(name)" ]; then echo 'Usage: make migration name="describe change"' >&2; exit 1; fi
 	cd backend && uv run alembic revision --autogenerate -m "$(name)"
 
-be: ## Run backend API only (FastAPI on :8000)
-	cd backend && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+be: ## Run backend API only (FastAPI on :4000)
+	cd backend && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 4000
 
-fe: ## Run frontend only (Vite on :5173)
-	cd frontend && npm run dev -- --host 127.0.0.1 --port 5173
+fe: ## Run frontend only (Vite on :3000)
+	cd frontend && npm run dev -- --host 127.0.0.1 --port 3000
 
 bolha\:lookahead: ## Scout anchor, then run Bolha lookahead loop (long-running)
 	cd backend && uv run python -m scraper.worker --sources bolha.lookahead

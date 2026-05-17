@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 
 from app.api import admin as admin_router
 from app.api import auth as auth_router
@@ -17,6 +18,18 @@ from app.scraper_events import get_event_bus
 from app.telegram.startup import setup_telegram
 
 settings = get_settings()
+
+
+class SPAStaticFiles(StaticFiles):
+    """Vite/React client routes: unknown paths fall back to index.html."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code == 404 and self.html:
+                return await super().get_response("index.html", scope)
+            raise
 
 
 @asynccontextmanager
@@ -63,4 +76,4 @@ app.include_router(admin_router.router, prefix="/api")
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "public"
 if (_STATIC_DIR / "index.html").is_file():
-    app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="spa")
+    app.mount("/", SPAStaticFiles(directory=_STATIC_DIR, html=True), name="spa")

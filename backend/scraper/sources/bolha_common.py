@@ -36,6 +36,21 @@ AD_PROBE_URL_TEMPLATE = (
     "https://iapi.bolha.com/avtomobili/progressive-scrape-oglas-{ad_id}"
 )
 
+
+def make_probe_client(
+    shared: httpx.AsyncClient,
+    *,
+    timeout_seconds: float,
+) -> httpx.AsyncClient:
+    """High-volume Bolha probe client; inherits worker HTTP event hooks from *shared*."""
+    return httpx.AsyncClient(
+        headers=dict(shared.headers),
+        follow_redirects=True,
+        timeout=httpx.Timeout(timeout_seconds),
+        limits=httpx.Limits(max_keepalive_connections=8, max_connections=16),
+        event_hooks=shared.event_hooks,
+    )
+
 LOOKAHEAD_ADS = 20
 LOOKAHEAD_TIMEOUT_SECONDS = 5
 LOOKAHEAD_PROBE_TIMEOUT_SECONDS = 15.0

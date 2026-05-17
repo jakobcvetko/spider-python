@@ -61,17 +61,27 @@ services:
     <<: *app
     command: ["python", "-m", "matcher.worker"]
 
+  portainer:
+    image: portainer/portainer-ce:2.27.9
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy
+      portainer:
+        condition: service_started
     ports:
       - "80:80"
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN}
+      PORTAINER_DOMAIN: ${PORTAINER_DOMAIN:-}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
@@ -80,5 +90,6 @@ services:
 
 volumes:
   spider_pg_data:
+  portainer_data:
   caddy_data:
   caddy_config:

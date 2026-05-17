@@ -1,4 +1,4 @@
-import { Card } from '../components/ui'
+import { Card, TableFrame } from '../components/ui'
 import { useMe } from '../lib/auth'
 import { formatPrice, useListings } from '../lib/listings'
 
@@ -10,7 +10,7 @@ export default function ListingsPage() {
 
   return (
     <>
-      <header className="mb-8">
+      <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight">Listings</h1>
         <p className="text-sm text-zinc-400">
           Listings that matched your scrapers (title contains the scraper name). Auto-refresh
@@ -44,7 +44,7 @@ export default function ListingsPage() {
             <code className="text-zinc-700">make matcher</code>.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-zinc-200">
+          <TableFrame>
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
               <thead className="bg-zinc-100 text-xs uppercase tracking-wide text-zinc-400">
                 <tr>
@@ -116,7 +116,7 @@ export default function ListingsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableFrame>
         )}
       </Card>
     </>

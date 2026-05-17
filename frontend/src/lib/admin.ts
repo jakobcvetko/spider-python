@@ -75,6 +75,25 @@ export const adminKeys = {
 /** Highest ad_id rows shown on the live bolha_ads registry table. */
 export const BOLHA_ADS_TOP_LIMIT = 200;
 
+/** Bolha HTTP log table on /admin/bolha/http-logs. */
+export const BOLHA_HTTP_LOGS_LIMIT = 100;
+
+const BOLHA_HTTP_KINDS = new Set(["http_request", "http_response"]);
+
+export function isBolhaHttpEvent(ev: ScraperEvent): boolean {
+  if (!BOLHA_HTTP_KINDS.has(ev.kind)) return false;
+  const src = ev.source ?? "";
+  return src.startsWith("bolha.");
+}
+
+/** Chronological Bolha HTTP request/response rows (capped, oldest first). */
+export function useBolhaHttpLogs(events: ScraperEvent[]): ScraperEvent[] {
+  return useMemo(() => {
+    const filtered = events.filter(isBolhaHttpEvent);
+    return filtered.slice(-BOLHA_HTTP_LOGS_LIMIT);
+  }, [events]);
+}
+
 /** Matches backend ``LOOKAHEAD_ADS`` (bolha.lookahead window size). */
 export const BOLHA_LOOKAHEAD_COUNT = 20;
 

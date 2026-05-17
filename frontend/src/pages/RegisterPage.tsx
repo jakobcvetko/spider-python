@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 
-import { Button, Card, Input, PageShell } from '../components/ui'
+import { Button, Input, PageShell } from '../components/ui'
 import { getErrorMessage, useMe, useRegister } from '../lib/auth'
 
 export default function RegisterPage() {
@@ -36,11 +36,12 @@ export default function RegisterPage() {
 
   return (
     <PageShell>
-      <div className="mx-auto max-w-md pt-16">
-        <Card>
-          <h1 className="mb-1 text-2xl font-semibold tracking-tight">Create account</h1>
-          <p className="mb-6 text-sm text-zinc-400">It only takes a second.</p>
-          <form onSubmit={onSubmit} className="space-y-4">
+      <div className="mx-auto max-w-md space-y-4 pt-8 sm:pt-12">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Create account</h1>
+          <p className="mt-1 text-sm text-zinc-500">It only takes a second.</p>
+        </div>
+        <form onSubmit={onSubmit} className="space-y-4">
             <Input
               label="Email"
               type="email"
@@ -71,14 +72,13 @@ export default function RegisterPage() {
               Create account
             </Button>
           </form>
-          <p className="mt-6 text-sm text-zinc-400">
+        <p className="text-sm text-zinc-500">
             Already have an account?{' '}
             <Link to="/login" className="text-indigo-600 hover:text-indigo-700">
               Sign in
             </Link>
           </p>
-        </Card>
-      </div>
+        </div>
     </PageShell>
   )
 }

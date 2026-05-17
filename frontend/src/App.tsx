@@ -6,6 +6,7 @@ import { UserLayout } from './components/UserLayout'
 import AdminPage from './pages/AdminPage'
 import AdminAvtoNetPage from './pages/AdminAvtoNetPage'
 import AdminBolhaPage from './pages/AdminBolhaPage'
+import AdminBolhaHttpLogsPage from './pages/AdminBolhaHttpLogsPage'
 import AdminListingsPage from './pages/AdminListingsPage'
 import HomePage from './pages/HomePage'
 import ListingsPage from './pages/ListingsPage'
@@ -41,6 +42,7 @@ export default function App() {
         <Route index element={<AdminPage />} />
         <Route path="listings" element={<AdminListingsPage />} />
         <Route path="bolha" element={<AdminBolhaPage />} />
+        <Route path="bolha/http-logs" element={<AdminBolhaHttpLogsPage />} />
         <Route path="bolha/ads" element={<Navigate to="/admin/bolha" replace />} />
         <Route path="bolha/ad-states" element={<Navigate to="/admin/bolha" replace />} />
         <Route path="avtonet" element={<AdminAvtoNetPage />} />

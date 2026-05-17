@@ -3,11 +3,11 @@ import { BolhaAdsTable } from '../components/BolhaAdsTable'
 export default function AdminBolhaPage() {
   return (
     <>
-      <header className="mb-6">
+      <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight">bolha_ads</h1>
       </header>
 
-      <p className="mb-4 text-sm text-zinc-400">
+      <p className="mb-3 text-sm text-zinc-400">
         Live view of the 200 highest ad IDs probed by lookahead or backfill. Status:{' '}
         <span className="text-amber-700">pending</span> (empty slot),{' '}
         <span className="text-emerald-700">active</span> (listing scraped),{' '}

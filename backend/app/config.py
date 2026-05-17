@@ -22,7 +22,10 @@ class Settings(BaseSettings):
     session_cookie_name: str = Field(default="spider_session", alias="SESSION_COOKIE_NAME")
     session_lifetime_days: int = Field(default=14, alias="SESSION_LIFETIME_DAYS")
     session_cookie_secure: bool = Field(default=False, alias="SESSION_COOKIE_SECURE")
-    cors_origins: str = Field(default="http://localhost:5173", alias="CORS_ORIGINS")
+    cors_origins: str = Field(
+        default="http://127.0.0.1:3000,http://localhost:3000",
+        alias="CORS_ORIGINS",
+    )
     scrape_interval_seconds: int = Field(default=60, alias="SCRAPE_INTERVAL_SECONDS")
     scraper_user_agent: str = Field(
         default="spider-bot/0.1 (+https://example.com)",

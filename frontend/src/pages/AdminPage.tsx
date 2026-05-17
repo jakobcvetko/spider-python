@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { Button, Card } from '../components/ui'
+import { Button, Card, TableFrame } from '../components/ui'
 import {
   type ScraperEvent,
   useAdminUsers,
@@ -66,12 +66,12 @@ export default function AdminPage() {
 
   return (
     <>
-      <header className="mb-6">
+      <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
         <p className="mt-1 text-sm text-zinc-400">Scraper status, live events, and users.</p>
       </header>
 
-      <section className="mb-6 grid gap-4 lg:grid-cols-3">
+      <section className="mb-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
             Scraper status
@@ -142,7 +142,7 @@ export default function AdminPage() {
               </button>
             </div>
           </div>
-          <div className="max-h-[420px] overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-100 font-mono text-xs">
+          <div className="max-h-[420px] overflow-y-auto border-y border-zinc-200 bg-zinc-100/80 font-mono text-xs -mx-3 sm:mx-0">
             {events.length === 0 ? (
               <p className="p-4 text-zinc-500">
                 Waiting for scraper events…
@@ -191,7 +191,7 @@ export default function AdminPage() {
         ) : !users.data || users.data.length === 0 ? (
           <p className="text-sm text-zinc-500">No users yet.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-zinc-200">
+          <TableFrame>
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
               <thead className="bg-zinc-100 text-xs uppercase tracking-wide text-zinc-400">
                 <tr>
@@ -224,7 +224,7 @@ export default function AdminPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableFrame>
         )}
       </Card>
     </>

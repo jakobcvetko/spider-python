@@ -12,7 +12,7 @@ import {
   type BolhaAdScrapeEntry,
 } from '../lib/admin'
 import { getErrorMessage } from '../lib/auth'
-import { Button, Card } from './ui'
+import { Button, Card, TableFrame } from './ui'
 
 const SCRAPE_TIMELINE_WIDTH_PX = 384
 const SCRAPE_TIMELINE_TICK_MS = 200
@@ -446,7 +446,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
 
   return (
     <Card>
-      <div className="mb-4 flex flex-col gap-1 border-b border-zinc-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-3 flex flex-col gap-1 border-b border-zinc-200 pb-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
             bolha_ads
@@ -554,7 +554,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
             </span>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-zinc-200">
+          <TableFrame>
             <table className="min-w-full divide-y divide-zinc-200 text-left text-xs">
               <thead className="bg-zinc-100 text-[10px] uppercase tracking-wide text-zinc-500">
                 <tr>
@@ -596,7 +596,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
                 })}
               </tbody>
             </table>
-          </div>
+          </TableFrame>
         </>
       )}
     </Card>

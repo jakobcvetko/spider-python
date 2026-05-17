@@ -1,5 +1,10 @@
 import { forwardRef, useEffect } from 'react'
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
+import type {
+  ButtonHTMLAttributes,
+  HTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+} from 'react'
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'ghost' | 'danger'
@@ -11,7 +16,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   ref,
 ) {
   const base =
-    'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-50 disabled:cursor-not-allowed'
+    'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed'
   const variants: Record<string, string> = {
     primary:
       'bg-indigo-600 text-white hover:bg-indigo-500 focus:ring-indigo-500',
@@ -57,13 +62,29 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   )
 })
 
+/** Flat section wrapper — no card chrome (border/shadow/padding). */
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <section className={`space-y-3 ${className}`}>{children}</section>
+}
+
+type TableFrameProps = HTMLAttributes<HTMLDivElement> & {
+  children: ReactNode
+}
+
+export const TableFrame = forwardRef<HTMLDivElement, TableFrameProps>(function TableFrame(
+  { children, className = '', ...rest },
+  ref,
+) {
   return (
-    <div className={`rounded-xl border border-zinc-200 bg-white p-6 shadow-sm ${className}`}>
+    <div
+      ref={ref}
+      className={`-mx-3 overflow-x-auto border-y border-zinc-200 sm:mx-0 ${className}`}
+      {...rest}
+    >
       {children}
     </div>
   )
-}
+})
 
 type ModalProps = {
   open: boolean
@@ -98,7 +119,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-10 w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-xl"
+        className="relative z-10 w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl sm:p-6"
       >
         <h2 id={titleId} className="mb-4 text-lg font-semibold tracking-tight text-zinc-900">
           {title}
@@ -109,10 +130,20 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
   )
 }
 
-export function PageShell({ children }: { children: ReactNode }) {
+export function PageShell({
+  children,
+  wide = false,
+}: {
+  children: ReactNode
+  wide?: boolean
+}) {
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
-      <div className="mx-auto max-w-5xl px-4 py-8">{children}</div>
+      <div
+        className={`mx-auto w-full px-3 py-3 sm:px-4 sm:py-4 ${wide ? 'max-w-[90rem]' : 'max-w-6xl'}`}
+      >
+        {children}
+      </div>
     </div>
   )
 }

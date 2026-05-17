@@ -1,5 +1,5 @@
 import { useBolhaAdStates } from '../lib/admin'
-import { Card } from './ui'
+import { Card, TableFrame } from './ui'
 
 function fmtIso(iso: string | null): string {
   if (!iso) return '—'
@@ -69,7 +69,7 @@ export function BolhaAdStatesTable({ enabled }: BolhaAdStatesTableProps) {
       )}
 
       {!q.isLoading && q.data && q.data.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-zinc-200">
+        <TableFrame>
           <table className="min-w-full divide-y divide-zinc-200 text-left text-xs">
             <thead className="bg-zinc-100 text-[10px] uppercase tracking-wide text-zinc-500">
               <tr>
@@ -119,7 +119,7 @@ export function BolhaAdStatesTable({ enabled }: BolhaAdStatesTableProps) {
               ))}
             </tbody>
           </table>
-        </div>
+          </TableFrame>
       )}
     </Card>
   )

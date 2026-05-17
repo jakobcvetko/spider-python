@@ -32,14 +32,14 @@ export default function HomePage() {
 
   return (
     <>
-      <header className="mb-8">
+      <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Your matches, scrapers, and notification connections at a glance.
         </p>
       </header>
 
-      <div className="space-y-6">
+      <div className="space-y-5">
         <Card>
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -104,7 +104,7 @@ export default function HomePage() {
               to start matching listings.
             </p>
           ) : (
-            <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+            <ul className="divide-y divide-zinc-200 border-y border-zinc-200 -mx-3 sm:mx-0">
               {activeScrapers.map((scraper) => (
                 <li
                   key={scraper.id}

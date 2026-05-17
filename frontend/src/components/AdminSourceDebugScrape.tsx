@@ -107,23 +107,23 @@ export function AdminSourceDebugScrape({
 
   return (
     <>
-      <header className="mb-6">
+      <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
       </header>
 
       {prependSlot != null && (
-        <div className="mb-6">
+        <div className="mb-4">
           {typeof prependSlot === 'function' ? prependSlot({ live }) : prependSlot}
         </div>
       )}
 
-      <div className="mb-6 grid gap-4 lg:grid-cols-2">
+      <div className="mb-4 grid gap-4 lg:grid-cols-2">
         <Card>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
             How this scrape works
           </h2>
           <div className="space-y-3 text-sm leading-relaxed text-zinc-700">{children}</div>
-          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-400">
+          <div className="mt-3 border-t border-zinc-200 pt-3 text-xs text-zinc-400">
             <p className="font-medium text-zinc-700">Live log</p>
             <p className="mt-1">
               The worker runs in a separate process. This page listens on the same admin WebSocket
@@ -182,7 +182,7 @@ export function AdminSourceDebugScrape({
             </button>
           </div>
         </div>
-        <div className="max-h-[min(520px,55vh)] overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-100 font-mono text-xs">
+        <div className="max-h-[min(520px,55vh)] overflow-y-auto border-y border-zinc-200 bg-zinc-100/80 -mx-3 sm:mx-0 font-mono text-xs">
           {events.length === 0 ? (
             <p className="p-4 text-zinc-500">
               No events for this source yet. Connect the worker, then press “Scrape once”, or wait

@@ -16,6 +16,7 @@ from scraper.sources.bolha_common import (
     AD_PROBE_URL_TEMPLATE,
     EmitFn,
     IAPI_HOME_URL,
+    make_probe_client,
     LISTING_SOURCE,
     LOOKAHEAD_ADS,
     LOOKAHEAD_HIGH_WATER_REFRESH_BATCHES,
@@ -43,16 +44,6 @@ from scraper.sources.bolha_common import (
 )
 
 log = logging.getLogger(__name__)
-
-
-def _probe_client(shared: httpx.AsyncClient) -> httpx.AsyncClient:
-    """HTTP client without worker NOTIFY hooks — lookahead does many requests per second."""
-    return httpx.AsyncClient(
-        headers=dict(shared.headers),
-        follow_redirects=True,
-        timeout=httpx.Timeout(LOOKAHEAD_PROBE_TIMEOUT_SECONDS),
-        limits=httpx.Limits(max_keepalive_connections=8, max_connections=16),
-    )
 
 
 class BolhaLookaheadSource:
@@ -100,7 +91,7 @@ class BolhaLookaheadSource:
         emit: EmitFn = None,
     ) -> NoReturn:
         """Runs until process exit (worker uses no interval job for this source)."""
-        probe = _probe_client(client)
+        probe = make_probe_client(client, timeout_seconds=LOOKAHEAD_PROBE_TIMEOUT_SECONDS)
         try:
             async with SessionLocal() as db:
                 log.info("bolha lookahead: running initial scout")

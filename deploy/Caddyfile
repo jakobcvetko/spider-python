@@ -1,8 +1,12 @@
-# Requires DOMAIN in server .env (DNS A/AAAA → this host).
+# Requires DOMAIN and PORTAINER_DOMAIN in server .env (DNS A/AAAA → this host).
 {
 	email {$ACME_EMAIL}
 }
 
 {$DOMAIN} {
 	reverse_proxy api:8000
+}
+
+{$PORTAINER_DOMAIN} {
+	reverse_proxy portainer:9000
 }

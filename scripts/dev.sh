@@ -45,20 +45,20 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM EXIT
 
-echo "==> Starting backend (:8000) and frontend (:5173)..."
+echo "==> Starting backend (:4000) and frontend (:3000)..."
 echo "==> Run scrapers separately, e.g.: make bolha:lookahead   make bolha:backfill"
 echo "==> Press Ctrl+C to stop all."
 echo
 
 (
   cd "$ROOT/backend"
-  uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 2>&1 | prefix "be"
+  uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 4000 2>&1 | prefix "be"
 ) &
 PIDS+=("$!")
 
 (
   cd "$ROOT/frontend"
-  npm run dev -- --host 127.0.0.1 --port 5173 2>&1 | prefix "fe"
+  npm run dev -- --host 127.0.0.1 --port 3000 2>&1 | prefix "fe"
 ) &
 PIDS+=("$!")
 

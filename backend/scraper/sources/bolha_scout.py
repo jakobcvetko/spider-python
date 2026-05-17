@@ -22,6 +22,7 @@ from scraper.sources.bolha_common import (
     SCOUT_REFINE_STEP,
     ProbeKind,
     get_meta,
+    make_probe_client,
     is_known_probe_kind,
     max_ad_id_from_homepage_html,
     max_numeric_listing_id,
@@ -32,15 +33,6 @@ from scraper.sources.bolha_common import (
 )
 
 log = logging.getLogger(__name__)
-
-
-def _probe_client(shared: httpx.AsyncClient) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        headers=dict(shared.headers),
-        follow_redirects=True,
-        timeout=httpx.Timeout(SCOUT_PROBE_TIMEOUT_SECONDS),
-        limits=httpx.Limits(max_keepalive_connections=8, max_connections=16),
-    )
 
 
 @dataclass
@@ -58,7 +50,7 @@ async def run_bolha_scout(
 ) -> None:
     """Gallop + binary search to refresh ``last_working_ad_id`` before lookahead."""
     scout = BolhaScoutSource()
-    probe = _probe_client(shared)
+    probe = make_probe_client(shared, timeout_seconds=SCOUT_PROBE_TIMEOUT_SECONDS)
     try:
         await scout._run_scout(db, probe, emit)
     finally:

@@ -1,4 +1,4 @@
-import { Card } from '../components/ui'
+import { Card, TableFrame } from '../components/ui'
 import { useAdminListings } from '../lib/admin'
 import { getErrorMessage } from '../lib/auth'
 import { formatPrice } from '../lib/listings'
@@ -8,7 +8,7 @@ export default function AdminListingsPage() {
 
   return (
     <>
-      <header className="mb-6">
+      <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight">Listings</h1>
         <p className="mt-1 text-sm text-zinc-400">
           Last 100: Bolha by ad ID (highest first), then others by time added.
@@ -34,7 +34,7 @@ export default function AdminListingsPage() {
         ) : !adminListings.data || adminListings.data.length === 0 ? (
           <p className="text-sm text-zinc-500">No listings in the database yet.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-zinc-200">
+          <TableFrame>
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
               <thead className="bg-zinc-100 text-xs uppercase tracking-wide text-zinc-400">
                 <tr>
@@ -106,7 +106,7 @@ export default function AdminListingsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableFrame>
         )}
       </Card>
     </>

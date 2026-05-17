@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { Button, Card, Input, Modal } from '../components/ui'
+import { Button, Card, Input, Modal, TableFrame } from '../components/ui'
 import { getErrorMessage, useMe } from '../lib/auth'
 import {
   type Scraper,
@@ -173,7 +173,7 @@ export default function ScrapersPage() {
 
   return (
     <>
-      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <header className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Scrapers</h1>
           <p className="mt-1 text-sm text-zinc-500">
@@ -195,7 +195,7 @@ export default function ScrapersPage() {
             No scrapers yet. Create one to choose which sources to scrape.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-zinc-200">
+          <TableFrame>
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
               <thead className="bg-zinc-100 text-xs uppercase tracking-wide text-zinc-400">
                 <tr>
@@ -267,7 +267,7 @@ export default function ScrapersPage() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableFrame>
         )}
       </Card>
 

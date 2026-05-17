@@ -41,6 +41,10 @@ async def setup_telegram(stop: asyncio.Event) -> asyncio.Task | None:
         except Exception:
             log.exception("telegram: setWebhook failed")
     elif settings.telegram_polling:
+        try:
+            await client.delete_webhook()
+        except Exception:
+            log.exception("telegram: deleteWebhook failed")
         return asyncio.create_task(run_polling(stop))
     else:
         log.warning(
