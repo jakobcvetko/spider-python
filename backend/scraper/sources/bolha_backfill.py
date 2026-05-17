@@ -9,18 +9,21 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import SessionLocal
-from app.models import BolhaAdState
-from scraper.base import ScrapedItem
+from app.matcher_jobs import enqueue_matcher_job
+from app.models import BolhaAd
+from app.models.bolha_ad import (
+    AD_STATUS_BACKFILL,
+    AD_STATUS_SUCCESS,
+    AD_STATUS_TIMEDOUT,
+)
+from scraper.base import ScrapedItem, get_listing_id, upsert_items
 from scraper.sources.bolha_common import (
     AD_PROBE_URL_TEMPLATE,
+    BACKFILL_BATCH_SIZE,
+    BACKFILL_CYCLE_PAUSE_SECONDS,
+    BACKFILL_TIMEOUT_SECONDS,
     EmitFn,
-    FALLBACK_CYCLE_PAUSE_SECONDS,
-    FALLBACK_TIMEOUT_SECONDS,
     LISTING_SOURCE,
-    MAX_FALLBACK_IDS_PER_FETCH,
-    STATUS_FALLBACK_WARMING,
-    STATUS_PENDING_FALLBACK,
-    STATUS_TIMED_OUT,
     classify_probe_response,
     delete_ad_state,
     emit_progress_tick,
@@ -35,27 +38,17 @@ from scraper.sources.bolha_common import (
 log = logging.getLogger(__name__)
 
 
-def _fallback_age_seconds(st: BolhaAdState, now: datetime) -> float | None:
-    if st.first_fallback_scrape_at is None:
+def _backfill_age_seconds(row: BolhaAd, now: datetime) -> float | None:
+    if row.backfill_started_at is None:
         return None
-    return (now - st.first_fallback_scrape_at).total_seconds()
+    return (now - row.backfill_started_at).total_seconds()
 
 
-async def _mark_timed_out(
-    db: AsyncSession,
-    ad_id: int,
-    *,
-    now: datetime,
-) -> None:
+async def _mark_timed_out(db: AsyncSession, ad_id: int, *, now: datetime) -> None:
     await db.execute(
-        update(BolhaAdState)
-        .where(BolhaAdState.ad_id == ad_id)
-        .values(
-            status=STATUS_TIMED_OUT,
-            last_fallback_scrape_at=now,
-            last_outcome="timed_out",
-            last_detail=None,
-        )
+        update(BolhaAd)
+        .where(BolhaAd.ad_id == ad_id)
+        .values(status=AD_STATUS_TIMEDOUT, backfill_started_at=None)
     )
 
 
@@ -72,28 +65,26 @@ class BolhaBackfillSource:
             meta = await get_meta(db)
             lw = int(meta.last_working_ad_id or 0)
             if lw <= 0:
-                await asyncio.sleep(FALLBACK_CYCLE_PAUSE_SECONDS)
+                await asyncio.sleep(BACKFILL_CYCLE_PAUSE_SECONDS)
                 return []
 
             stmt = (
-                select(BolhaAdState)
+                select(BolhaAd)
                 .where(
-                    BolhaAdState.ad_id < lw,
-                    BolhaAdState.status.in_(
-                        [STATUS_PENDING_FALLBACK, STATUS_FALLBACK_WARMING]
-                    ),
+                    BolhaAd.ad_id < lw,
+                    BolhaAd.status == AD_STATUS_BACKFILL,
                 )
-                .order_by(BolhaAdState.ad_id.desc())
-                .limit(MAX_FALLBACK_IDS_PER_FETCH)
+                .order_by(BolhaAd.ad_id.desc())
+                .limit(BACKFILL_BATCH_SIZE)
             )
             rows = (await db.execute(stmt)).scalars().all()
             collected: list[ScrapedItem] = []
             now = datetime.now(timezone.utc)
 
-            for st in rows:
-                ad_id = st.ad_id
-                age_s = _fallback_age_seconds(st, now)
-                if age_s is not None and age_s >= FALLBACK_TIMEOUT_SECONDS:
+            for row in rows:
+                ad_id = row.ad_id
+                age_s = _backfill_age_seconds(row, now)
+                if age_s is not None and age_s >= BACKFILL_TIMEOUT_SECONDS:
                     await _mark_timed_out(db, ad_id, now=now)
                     continue
 
@@ -131,8 +122,8 @@ class BolhaBackfillSource:
                         http_status=-1,
                         gtm_ad_status=None,
                     )
-                    age_s = _fallback_age_seconds(st, now)
-                    if age_s is not None and age_s >= FALLBACK_TIMEOUT_SECONDS:
+                    age_s = _backfill_age_seconds(row, now)
+                    if age_s is not None and age_s >= BACKFILL_TIMEOUT_SECONDS:
                         await _mark_timed_out(db, ad_id, now=now)
                     continue
 
@@ -172,43 +163,40 @@ class BolhaBackfillSource:
                 )
 
                 if kind == "active":
-                    collected.append(parse_active_detail(html, ad_id))
+                    item = parse_active_detail(html, ad_id)
+                    collected.append(item)
                     await delete_ad_state(db, ad_id)
+                    try:
+                        await upsert_items(db, LISTING_SOURCE, [item])
+                    except Exception:
+                        log.exception("bolha backfill: upsert failed ad_id=%s", ad_id)
+                    listing_id = await get_listing_id(db, LISTING_SOURCE, str(ad_id))
+                    if listing_id is not None:
+                        try:
+                            await enqueue_matcher_job(db, listing_id)
+                        except Exception:
+                            log.exception(
+                                "bolha backfill: matcher enqueue failed ad_id=%s", ad_id
+                            )
+                    await db.execute(
+                        update(BolhaAd)
+                        .where(BolhaAd.ad_id == ad_id)
+                        .values(status=AD_STATUS_SUCCESS, backfill_started_at=None)
+                    )
                     continue
 
                 if kind == "expired":
                     await delete_ad_state(db, ad_id)
+                    await db.execute(
+                        update(BolhaAd)
+                        .where(BolhaAd.ad_id == ad_id)
+                        .values(backfill_started_at=None)
+                    )
                     continue
 
-                age_s = _fallback_age_seconds(st, now)
-                if age_s is not None and age_s >= FALLBACK_TIMEOUT_SECONDS:
+                age_s = _backfill_age_seconds(row, now)
+                if age_s is not None and age_s >= BACKFILL_TIMEOUT_SECONDS:
                     await _mark_timed_out(db, ad_id, now=now)
-                    continue
-
-                if st.status == STATUS_PENDING_FALLBACK:
-                    values: dict[str, object] = {
-                        "status": STATUS_FALLBACK_WARMING,
-                        "last_fallback_scrape_at": now,
-                        "last_outcome": oc,
-                        "last_detail": None,
-                    }
-                    if st.first_fallback_scrape_at is None:
-                        values["first_fallback_scrape_at"] = now
-                    await db.execute(
-                        update(BolhaAdState)
-                        .where(BolhaAdState.ad_id == ad_id)
-                        .values(**values)
-                    )
-                else:
-                    await db.execute(
-                        update(BolhaAdState)
-                        .where(BolhaAdState.ad_id == ad_id)
-                        .values(
-                            last_fallback_scrape_at=now,
-                            last_outcome=oc,
-                            last_detail=None,
-                        )
-                    )
 
             await db.commit()
             log.info(
@@ -217,5 +205,5 @@ class BolhaBackfillSource:
                 len(collected),
             )
 
-        await asyncio.sleep(FALLBACK_CYCLE_PAUSE_SECONDS)
+        await asyncio.sleep(BACKFILL_CYCLE_PAUSE_SECONDS)
         return collected

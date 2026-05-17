@@ -1,4 +1,4 @@
-"""avto.net backfill for IDs skipped during lookahead (mirrors bolha.backfill)."""
+"""avto.net backfill for gap IDs below last_working (mirrors bolha.backfill)."""
 
 from __future__ import annotations
 
@@ -13,18 +13,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import SessionLocal
 from app.matcher_jobs import enqueue_matcher_job
-from app.models import AvtonetAdState
+from app.models import AvtonetAd
+from app.models.avtonet_ad import (
+    AD_STATUS_BACKFILL,
+    AD_STATUS_SUCCESS,
+    AD_STATUS_TIMEDOUT,
+)
 from scraper.base import ScrapedItem, get_listing_id, upsert_items
 from scraper.sources.avto_net_common import LISTING_SOURCE
 from scraper.sources.avto_net_probe import probe_ad_id as fetch_probe
 from scraper.sources.avtonet_pipeline import (
+    BACKFILL_BATCH_SIZE,
+    BACKFILL_CYCLE_PAUSE_SECONDS,
+    BACKFILL_TIMEOUT_SECONDS,
     EmitFn,
-    FALLBACK_CYCLE_PAUSE_SECONDS,
-    FALLBACK_TIMEOUT_SECONDS,
-    MAX_FALLBACK_IDS_PER_FETCH,
-    STATUS_FALLBACK_WARMING,
-    STATUS_PENDING_FALLBACK,
-    STATUS_TIMED_OUT,
     delete_ad_state,
     emit_progress_tick,
     get_meta,
@@ -37,27 +39,17 @@ from scraper.sources.avtonet_pipeline import (
 log = logging.getLogger(__name__)
 
 
-def _fallback_age_seconds(st: AvtonetAdState, now: datetime) -> float | None:
-    if st.first_fallback_scrape_at is None:
+def _backfill_age_seconds(row: AvtonetAd, now: datetime) -> float | None:
+    if row.backfill_started_at is None:
         return None
-    return (now - st.first_fallback_scrape_at).total_seconds()
+    return (now - row.backfill_started_at).total_seconds()
 
 
-async def _mark_timed_out(
-    db: AsyncSession,
-    ad_id: int,
-    *,
-    now: datetime,
-) -> None:
+async def _mark_timed_out(db: AsyncSession, ad_id: int, *, now: datetime) -> None:
     await db.execute(
-        update(AvtonetAdState)
-        .where(AvtonetAdState.ad_id == ad_id)
-        .values(
-            status=STATUS_TIMED_OUT,
-            last_fallback_scrape_at=now,
-            last_outcome="timed_out",
-            last_detail=None,
-        )
+        update(AvtonetAd)
+        .where(AvtonetAd.ad_id == ad_id)
+        .values(status=AD_STATUS_TIMEDOUT, backfill_started_at=None)
     )
 
 
@@ -75,28 +67,26 @@ class AvtoNetBackfillSource:
             meta = await get_meta(db)
             lw = int(meta.last_working_ad_id or 0)
             if lw <= 0:
-                await asyncio.sleep(FALLBACK_CYCLE_PAUSE_SECONDS)
+                await asyncio.sleep(BACKFILL_CYCLE_PAUSE_SECONDS)
                 return []
 
             stmt = (
-                select(AvtonetAdState)
+                select(AvtonetAd)
                 .where(
-                    AvtonetAdState.ad_id < lw,
-                    AvtonetAdState.status.in_(
-                        [STATUS_PENDING_FALLBACK, STATUS_FALLBACK_WARMING]
-                    ),
+                    AvtonetAd.ad_id < lw,
+                    AvtonetAd.status == AD_STATUS_BACKFILL,
                 )
-                .order_by(AvtonetAdState.ad_id.desc())
-                .limit(MAX_FALLBACK_IDS_PER_FETCH)
+                .order_by(AvtonetAd.ad_id.desc())
+                .limit(BACKFILL_BATCH_SIZE)
             )
             rows = (await db.execute(stmt)).scalars().all()
             collected: list[ScrapedItem] = []
             now = datetime.now(timezone.utc)
 
-            for st in rows:
-                ad_id = st.ad_id
-                age_s = _fallback_age_seconds(st, now)
-                if age_s is not None and age_s >= FALLBACK_TIMEOUT_SECONDS:
+            for row in rows:
+                ad_id = row.ad_id
+                age_s = _backfill_age_seconds(row, now)
+                if age_s is not None and age_s >= BACKFILL_TIMEOUT_SECONDS:
                     await _mark_timed_out(db, ad_id, now=now)
                     continue
 
@@ -137,8 +127,8 @@ class AvtoNetBackfillSource:
                         outcome="http_error",
                         http_status=-1,
                     )
-                    age_s = _fallback_age_seconds(st, now)
-                    if age_s is not None and age_s >= FALLBACK_TIMEOUT_SECONDS:
+                    age_s = _backfill_age_seconds(row, now)
+                    if age_s is not None and age_s >= BACKFILL_TIMEOUT_SECONDS:
                         await _mark_timed_out(db, ad_id, now=now)
                     continue
 
@@ -176,17 +166,11 @@ class AvtoNetBackfillSource:
                 if kind == "active" and result.item is not None:
                     collected.append(result.item)
                     await delete_ad_state(db, ad_id)
+                    try:
+                        await upsert_items(db, LISTING_SOURCE, [result.item])
+                    except Exception:
+                        log.exception("avto.net backfill: upsert failed ad_id=%s", ad_id)
                     listing_id = await get_listing_id(db, LISTING_SOURCE, str(ad_id))
-                    if listing_id is None:
-                        try:
-                            await upsert_items(db, LISTING_SOURCE, [result.item])
-                            listing_id = await get_listing_id(
-                                db, LISTING_SOURCE, str(ad_id)
-                            )
-                        except Exception:
-                            log.exception(
-                                "avto.net backfill: upsert failed ad_id=%s", ad_id
-                            )
                     if listing_id is not None:
                         try:
                             await enqueue_matcher_job(db, listing_id)
@@ -195,41 +179,25 @@ class AvtoNetBackfillSource:
                                 "avto.net backfill: matcher enqueue failed ad_id=%s",
                                 ad_id,
                             )
+                    await db.execute(
+                        update(AvtonetAd)
+                        .where(AvtonetAd.ad_id == ad_id)
+                        .values(status=AD_STATUS_SUCCESS, backfill_started_at=None)
+                    )
                     continue
 
                 if kind == "expired":
                     await delete_ad_state(db, ad_id)
+                    await db.execute(
+                        update(AvtonetAd)
+                        .where(AvtonetAd.ad_id == ad_id)
+                        .values(backfill_started_at=None)
+                    )
                     continue
 
-                age_s = _fallback_age_seconds(st, now)
-                if age_s is not None and age_s >= FALLBACK_TIMEOUT_SECONDS:
+                age_s = _backfill_age_seconds(row, now)
+                if age_s is not None and age_s >= BACKFILL_TIMEOUT_SECONDS:
                     await _mark_timed_out(db, ad_id, now=now)
-                    continue
-
-                if st.status == STATUS_PENDING_FALLBACK:
-                    values: dict[str, object] = {
-                        "status": STATUS_FALLBACK_WARMING,
-                        "last_fallback_scrape_at": now,
-                        "last_outcome": oc,
-                        "last_detail": result.detail,
-                    }
-                    if st.first_fallback_scrape_at is None:
-                        values["first_fallback_scrape_at"] = now
-                    await db.execute(
-                        update(AvtonetAdState)
-                        .where(AvtonetAdState.ad_id == ad_id)
-                        .values(**values)
-                    )
-                else:
-                    await db.execute(
-                        update(AvtonetAdState)
-                        .where(AvtonetAdState.ad_id == ad_id)
-                        .values(
-                            last_fallback_scrape_at=now,
-                            last_outcome=oc,
-                            last_detail=result.detail,
-                        )
-                    )
 
             await db.commit()
             log.info(
@@ -238,5 +206,5 @@ class AvtoNetBackfillSource:
                 len(collected),
             )
 
-        await asyncio.sleep(FALLBACK_CYCLE_PAUSE_SECONDS)
+        await asyncio.sleep(BACKFILL_CYCLE_PAUSE_SECONDS)
         return collected

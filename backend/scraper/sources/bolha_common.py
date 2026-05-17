@@ -12,18 +12,22 @@ from sqlalchemy import delete, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.matcher_jobs import enqueue_matcher_job
 from app.models import BolhaAd, BolhaAdProbe, BolhaAdState, BolhaScrapeMeta
 from app.models.bolha_ad import (
+    AD_STATUS_BACKFILL,
+    AD_STATUS_EMPTY,
     AD_STATUS_PENDING,
     AD_STATUS_REMOVED,
     AD_STATUS_SUCCESS,
+    AD_STATUS_TIMEDOUT,
     SCRAPE_RESULT_EMPTY,
     SCRAPE_RESULT_ERROR,
     SCRAPE_RESULT_REMOVED,
     SCRAPE_RESULT_SUCCESS,
 )
 from app.scraper_events import make_event
-from scraper.base import ScrapedItem
+from scraper.base import ScrapedItem, get_listing_id, upsert_items
 
 log = logging.getLogger(__name__)
 
@@ -51,8 +55,10 @@ def make_probe_client(
         event_hooks=shared.event_hooks,
     )
 
-# Lookahead/scout only promote bolha_ads.status to success; everything else stays pending.
+# Lookahead/scout only promote bolha_ads.status to success or empty; everything else stays pending.
 FRONTIER_AD_STATUS_SOURCES = frozenset({"bolha.lookahead", "bolha.scout"})
+BACKFILL_AD_STATUS_SOURCES = frozenset({"bolha.backfill"})
+BACKFILL_PROMOTE_STATUSES = (AD_STATUS_PENDING, AD_STATUS_EMPTY)
 
 LOOKAHEAD_ADS = 5
 LOOKAHEAD_TIMEOUT_SECONDS = 5
@@ -60,15 +66,18 @@ LOOKAHEAD_PROBE_TIMEOUT_SECONDS = 15.0
 # Re-scan listings / homepage occasionally so meta stays aligned with backfill or manual inserts.
 LOOKAHEAD_HIGH_WATER_REFRESH_BATCHES = 50
 LOOKAHEAD_HOMEPAGE_REFRESH_BATCHES = 120
-FALLBACK_CYCLE_PAUSE_SECONDS = 10
-# Gap-warming window after lookahead promotes skipped IDs to pending_fallback.
-FALLBACK_TIMEOUT_SECONDS = 300
-AD_TIMEOUT_SECONDS = FALLBACK_TIMEOUT_SECONDS
-
-MAX_FALLBACK_IDS_PER_FETCH = 40
+BACKFILL_CYCLE_PAUSE_SECONDS = 10
+BACKFILL_TIMEOUT_SECONDS = 300
+BACKFILL_BATCH_SIZE = 5
+# Legacy names used by admin / older imports
+FALLBACK_CYCLE_PAUSE_SECONDS = BACKFILL_CYCLE_PAUSE_SECONDS
+FALLBACK_TIMEOUT_SECONDS = BACKFILL_TIMEOUT_SECONDS
+MAX_FALLBACK_IDS_PER_FETCH = BACKFILL_BATCH_SIZE
 
 SCOUT_GALLOP_STEP = 1000
 SCOUT_REFINE_STEP = 100
+# Gallop/refine/binary probe center ± radius in parallel (same width as lookahead).
+SCOUT_PROBE_WINDOW_RADIUS = 2
 SCOUT_PROBE_DELAY_SECONDS = 0.2
 SCOUT_PROBE_TIMEOUT_SECONDS = LOOKAHEAD_PROBE_TIMEOUT_SECONDS
 SCOUT_MAX_PROBES = 500
@@ -219,20 +228,33 @@ def scrape_result_from_outcome(outcome: str) -> str:
     return SCRAPE_RESULT_ERROR
 
 
-def ad_status_from_scrape_result(result: str, *, source: str | None = None) -> str:
+def ad_status_from_scrape_result(
+    result: str, *, source: str | None = None
+) -> str | None:
     if source in FRONTIER_AD_STATUS_SOURCES:
         if result == SCRAPE_RESULT_SUCCESS:
             return AD_STATUS_SUCCESS
+        if result == SCRAPE_RESULT_EMPTY:
+            return AD_STATUS_EMPTY
         return AD_STATUS_PENDING
     if result == SCRAPE_RESULT_SUCCESS:
         return AD_STATUS_SUCCESS
     if result == SCRAPE_RESULT_REMOVED:
         return AD_STATUS_REMOVED
+    if source in BACKFILL_AD_STATUS_SOURCES:
+        return None
     return AD_STATUS_PENDING
 
 
 def merge_ad_status(current: str, new: str) -> str:
-    rank = {AD_STATUS_PENDING: 0, AD_STATUS_REMOVED: 1, AD_STATUS_SUCCESS: 2}
+    rank = {
+        AD_STATUS_PENDING: 0,
+        AD_STATUS_EMPTY: 0,
+        AD_STATUS_BACKFILL: 1,
+        AD_STATUS_REMOVED: 2,
+        AD_STATUS_TIMEDOUT: 2,
+        AD_STATUS_SUCCESS: 3,
+    }
     if rank.get(new, 0) > rank.get(current, 0):
         return new
     return current
@@ -286,16 +308,18 @@ async def record_bolha_ad_scrape(
     if detail:
         entry["detail"] = detail[:500]
 
-    new_status = ad_status_from_scrape_result(result, source=source)
+    resolved = ad_status_from_scrape_result(result, source=source)
     row = await db.get(BolhaAd, ad_id)
     if row is None:
-        row = BolhaAd(ad_id=ad_id, status=new_status, scrape_log=[entry])
+        initial = resolved if resolved is not None else AD_STATUS_PENDING
+        row = BolhaAd(ad_id=ad_id, status=initial, scrape_log=[entry])
         db.add(row)
     else:
         log_entries = list(row.scrape_log or [])
         log_entries.append(entry)
         row.scrape_log = log_entries
-        row.status = merge_ad_status(row.status, new_status)
+        if resolved is not None:
+            row.status = merge_ad_status(row.status, resolved)
     await db.flush()
     if emit is not None:
         await db.refresh(row)
@@ -448,28 +472,132 @@ async def upsert_expired_state(
     await db.flush()
 
 
+async def promote_pending_below_to_backfill(
+    db: AsyncSession,
+    last_working_ad_id: int,
+    *,
+    now: datetime,
+) -> int:
+    """Queue gap IDs below a new last_working for bolha.backfill."""
+    result = await db.execute(
+        update(BolhaAd)
+        .where(
+            BolhaAd.ad_id < last_working_ad_id,
+            BolhaAd.status.in_(BACKFILL_PROMOTE_STATUSES),
+        )
+        .values(status=AD_STATUS_BACKFILL, backfill_started_at=now)
+    )
+    await db.flush()
+    return int(result.rowcount or 0)
+
+
 async def promote_lookahead_below_to_pending_fallback(
     db: AsyncSession,
     found_ad_id: int,
     *,
     now: datetime,
 ) -> None:
-    """Queue existing lookahead rows below found_ad_id for the backfill scraper."""
+    """Legacy: clear lookahead pipeline rows; registry backfill uses promote_pending_below_to_backfill."""
     await db.execute(
-        update(BolhaAdState)
-        .where(
+        delete(BolhaAdState).where(
             BolhaAdState.ad_id < found_ad_id,
             BolhaAdState.status == STATUS_LOOKAHEAD,
         )
-        .values(
-            status=STATUS_PENDING_FALLBACK,
-            first_fallback_scrape_at=now,
-            last_lookahead_at=None,
-            last_outcome=None,
-            last_detail=None,
-        )
     )
+    await promote_pending_below_to_backfill(db, found_ad_id, now=now)
     await db.flush()
+
+
+async def activate_last_working_ad(
+    db: AsyncSession,
+    ad_id: int,
+    *,
+    html: str,
+    source: str,
+    emit: EmitFn = None,
+    now: datetime | None = None,
+) -> int:
+    """Store listing, advance meta, queue lower pending/empty IDs for backfill."""
+    now = now or datetime.now(timezone.utc)
+    item = parse_active_detail(html, ad_id)
+    promoted = await promote_pending_below_to_backfill(db, ad_id, now=now)
+    await delete_lookahead_below_ad(db, ad_id)
+    await delete_ad_state(db, ad_id)
+    await meta_set_last_working(db, ad_id)
+    try:
+        inserted = await upsert_items(db, LISTING_SOURCE, [item])
+    except Exception:
+        log.exception("bolha activate_last_working: upsert failed ad_id=%s", ad_id)
+        inserted = 0
+    listing_id = await get_listing_id(db, LISTING_SOURCE, str(ad_id))
+    if listing_id is not None:
+        try:
+            await enqueue_matcher_job(db, listing_id)
+        except Exception:
+            log.exception(
+                "bolha activate_last_working: matcher enqueue failed ad_id=%s", ad_id
+            )
+    log.info(
+        "bolha activate_last_working: ad_id=%s source=%s promoted=%s inserted=%s",
+        ad_id,
+        source,
+        promoted,
+        inserted,
+    )
+    return inserted
+
+
+async def finalize_scout_last_working_advance(
+    db: AsyncSession,
+    probe: httpx.AsyncClient,
+    ad_id: int,
+    *,
+    source_name: str,
+    emit: EmitFn = None,
+) -> ProbeKind | None:
+    """Re-probe highest known id after scout: upsert listing or handle expired slot."""
+    url = AD_PROBE_URL_TEMPLATE.format(ad_id=ad_id)
+    now = datetime.now(timezone.utc)
+    try:
+        resp = await probe.get(url, timeout=LOOKAHEAD_PROBE_TIMEOUT_SECONDS)
+    except httpx.HTTPError as e:
+        log.warning("bolha scout finalize: probe %s failed: %s", ad_id, e)
+        await meta_set_last_working(db, ad_id)
+        return None
+    html = resp.text
+    kind, gtm, _detail, http_st = classify_probe_response(resp, html, ad_id=ad_id)
+    oc = outcome_from_class(kind)
+    await upsert_probe(
+        db,
+        ad_id,
+        fetched_at=now,
+        http_status=http_st,
+        gtm_ad_status=gtm,
+        outcome=oc,
+        detail=None,
+    )
+    await record_bolha_ad_scrape_from_outcome(
+        db,
+        ad_id,
+        source=source_name,
+        outcome=oc,
+        fetched_at=now,
+        http_status=http_st,
+        emit=emit,
+    )
+    if kind == "active":
+        await activate_last_working_ad(
+            db, ad_id, html=html, source=source_name, emit=emit, now=now
+        )
+        return kind
+    if kind == "expired":
+        await upsert_expired_state(db, ad_id, now=now, last_outcome=oc, detail=None)
+        await delete_lookahead_below_ad(db, ad_id)
+        await meta_set_last_working(db, ad_id)
+        log.info("bolha scout finalize: expired ad_id=%s, advanced last_working", ad_id)
+        return kind
+    await meta_set_last_working(db, ad_id)
+    return kind
 
 
 async def delete_ad_state(db: AsyncSession, ad_id: int) -> None:

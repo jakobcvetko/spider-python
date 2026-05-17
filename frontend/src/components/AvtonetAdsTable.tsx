@@ -39,8 +39,16 @@ function statusTone(status: string): string {
   switch (status) {
     case 'pending':
       return 'bg-amber-50 text-amber-800 ring-amber-200'
+    case 'empty':
+      return 'bg-yellow-50 text-yellow-800 ring-yellow-200'
+    case 'backfill':
+      return 'bg-sky-50 text-sky-800 ring-sky-200'
     case 'success':
       return 'bg-emerald-50 text-emerald-800 ring-emerald-200'
+    case 'timed_out':
+      return 'bg-zinc-200 text-zinc-700 ring-zinc-400'
+    case 'removed':
+      return 'bg-rose-50 text-rose-800 ring-rose-200'
     default:
       return 'bg-zinc-100 text-zinc-600 ring-zinc-300'
   }

@@ -10,13 +10,12 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import SessionLocal
-from app.matcher_jobs import enqueue_matcher_job
-from scraper.base import get_listing_id, upsert_items
 from scraper.sources.bolha_scout import run_bolha_scout
 from scraper.sources.bolha_common import (
     AD_PROBE_URL_TEMPLATE,
     EmitFn,
     IAPI_HOME_URL,
+    activate_last_working_ad,
     make_probe_client,
     LISTING_SOURCE,
     LOOKAHEAD_ADS,
@@ -25,7 +24,6 @@ from scraper.sources.bolha_common import (
     LOOKAHEAD_PROBE_TIMEOUT_SECONDS,
     LOOKAHEAD_TIMEOUT_SECONDS,
     classify_probe_response,
-    delete_ad_state,
     delete_lookahead_below_ad,
     emit_progress_tick,
     get_meta,
@@ -35,10 +33,8 @@ from scraper.sources.bolha_common import (
     meta_set_homepage_max,
     meta_set_last_working,
     outcome_from_class,
-    parse_active_detail,
     record_bolha_ad_scrape,
     record_bolha_ad_scrape_from_outcome,
-    promote_lookahead_below_to_pending_fallback,
     upsert_expired_state,
     upsert_lookahead_state,
     upsert_probe,
@@ -217,31 +213,14 @@ class BolhaLookaheadSource:
                     http_status=http_st,
                     gtm_ad_status=gtm,
                 )
-                item = parse_active_detail(slot.html, slot.ad_id)
-                await promote_lookahead_below_to_pending_fallback(
-                    db, slot.ad_id, now=now
+                inserted = await activate_last_working_ad(
+                    db,
+                    slot.ad_id,
+                    html=slot.html,
+                    source=self.name,
+                    emit=emit,
+                    now=now,
                 )
-                await delete_ad_state(db, slot.ad_id)
-                await meta_set_last_working(db, slot.ad_id)
-                try:
-                    inserted = await upsert_items(db, LISTING_SOURCE, [item])
-                except Exception:
-                    log.exception(
-                        "bolha lookahead: upsert failed for ad_id=%s",
-                        slot.ad_id,
-                    )
-                    inserted = 0
-
-                listing_id = await get_listing_id(db, LISTING_SOURCE, str(slot.ad_id))
-                if listing_id is not None:
-                    try:
-                        await enqueue_matcher_job(db, listing_id)
-                    except Exception:
-                        log.exception(
-                            "bolha lookahead: matcher enqueue failed ad_id=%s",
-                            slot.ad_id,
-                        )
-
                 self._cached_db_max = max(self._cached_db_max or 0, slot.ad_id)
                 log.info(
                     "bolha lookahead: active ad_id=%s (anchor was %s), inserted=%s",

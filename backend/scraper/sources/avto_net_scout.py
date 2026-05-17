@@ -17,16 +17,17 @@ from scraper.sources.avto_net_common import (
     SCOUT_MAX_ID_SPAN,
     SCOUT_MAX_PROBES,
     SCOUT_PROBE_DELAY_SECONDS,
+    SCOUT_PROBE_WINDOW_RADIUS,
     SCOUT_REFINE_STEP,
 )
 from scraper.sources.avtonet_pipeline import (
     EmitFn,
     PipelineKind,
+    finalize_scout_last_working_advance,
     get_meta,
     is_known_probe_kind,
     max_numeric_listing_id,
     meta_begin_fetch,
-    meta_set_last_working,
     probe_ad_id,
 )
 
@@ -124,7 +125,14 @@ class AvtoNetScoutSource:
 
         new_anchor = state.lo
         if new_anchor > meta_anchor:
-            await meta_set_last_working(db, new_anchor)
+            await finalize_scout_last_working_advance(
+                db,
+                client,
+                new_anchor,
+                source_name=self.name,
+                emit=emit,
+                settings=settings,
+            )
             log.info(
                 "avto.net scout: advanced last_working %s -> %s (%s probes)",
                 meta_anchor,
@@ -168,11 +176,13 @@ class AvtoNetScoutSource:
         emit: EmitFn,
         state: _ScoutState,
         ad_id: int,
+        *,
+        in_batch: bool = False,
     ) -> PipelineKind | None:
         if state.probe_count >= SCOUT_MAX_PROBES:
             return None
         state.probe_count += 1
-        if state.probe_count > 1:
+        if not in_batch and state.probe_count > 1:
             await asyncio.sleep(SCOUT_PROBE_DELAY_SECONDS)
         settings = get_settings()
         return await probe_ad_id(
@@ -185,6 +195,47 @@ class AvtoNetScoutSource:
             high_water=state.high_water,
             settings=settings,
         )
+
+    async def _probe_window(
+        self,
+        db: AsyncSession,
+        client: httpx.AsyncClient,
+        emit: EmitFn,
+        state: _ScoutState,
+        center: int,
+    ) -> tuple[int | None, bool]:
+        """Probe center±SCOUT_PROBE_WINDOW_RADIUS in parallel.
+
+        Returns (highest_known_id, budget_exhausted). ``highest_known_id`` is None
+        when no active/expired listing exists in the window.
+        """
+        radius = SCOUT_PROBE_WINDOW_RADIUS
+        ad_ids = [
+            center + offset
+            for offset in range(-radius, radius + 1)
+            if center + offset > 0
+        ]
+        if state.probe_count >= SCOUT_MAX_PROBES:
+            return None, True
+        if state.probe_count > 0:
+            await asyncio.sleep(SCOUT_PROBE_DELAY_SECONDS)
+
+        async def _one(ad_id: int) -> tuple[int, PipelineKind | None]:
+            kind = await self._probe(
+                db, client, emit, state, ad_id, in_batch=True
+            )
+            return ad_id, kind
+
+        results = await asyncio.gather(*[_one(ad_id) for ad_id in ad_ids])
+        exhausted = any(kind is None for _, kind in results)
+        known_ids = [
+            ad_id
+            for ad_id, kind in results
+            if kind is not None and is_known_probe_kind(kind)
+        ]
+        if known_ids:
+            return max(known_ids), exhausted
+        return None, exhausted
 
     async def _gallop_up(
         self,
@@ -204,16 +255,19 @@ class AvtoNetScoutSource:
                 )
                 return False
             candidate = state.lo + step
-            kind = await self._probe(db, client, emit, state, candidate)
-            if kind is None:
+            highest_known, exhausted = await self._probe_window(
+                db, client, emit, state, candidate
+            )
+            if exhausted:
                 return False
-            if is_known_probe_kind(kind):
-                state.lo = candidate
+            if highest_known is not None:
+                state.lo = highest_known
                 step = min(step * 2, SCOUT_MAX_ID_SPAN)
                 continue
-            state.hi = candidate
+            state.hi = candidate + SCOUT_PROBE_WINDOW_RADIUS
             log.info(
-                "avto.net scout: gallop bracket [%s, %s] (first unknown at %s)",
+                "avto.net scout: gallop bracket [%s, %s] "
+                "(no known in window around %s)",
                 state.lo,
                 state.hi,
                 candidate,
@@ -229,13 +283,15 @@ class AvtoNetScoutSource:
     ) -> None:
         while state.hi - state.lo > SCOUT_REFINE_STEP:
             candidate = state.lo + SCOUT_REFINE_STEP
-            kind = await self._probe(db, client, emit, state, candidate)
-            if kind is None:
+            highest_known, exhausted = await self._probe_window(
+                db, client, emit, state, candidate
+            )
+            if exhausted:
                 return
-            if is_known_probe_kind(kind):
-                state.lo = candidate
+            if highest_known is not None:
+                state.lo = highest_known
             else:
-                state.hi = candidate
+                state.hi = candidate + SCOUT_PROBE_WINDOW_RADIUS
                 return
 
     async def _binary_search_known(
@@ -250,13 +306,15 @@ class AvtoNetScoutSource:
     ) -> int:
         while hi - lo > 1:
             mid = (lo + hi) // 2
-            kind = await self._probe(db, client, emit, state, mid)
-            if kind is None:
+            highest_known, exhausted = await self._probe_window(
+                db, client, emit, state, mid
+            )
+            if exhausted:
                 break
-            if is_known_probe_kind(kind):
-                lo = mid
+            if highest_known is not None:
+                lo = highest_known
             else:
-                hi = mid
+                hi = max(lo + 1, mid - SCOUT_PROBE_WINDOW_RADIUS - 1)
         state.lo = lo
         state.hi = hi
         return lo

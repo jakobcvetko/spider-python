@@ -64,8 +64,14 @@ function statusTone(row: BolhaAdRow): string {
   switch (row.status) {
     case 'pending':
       return 'bg-amber-50 text-amber-800 ring-amber-200'
+    case 'empty':
+      return 'bg-yellow-50 text-yellow-800 ring-yellow-200'
+    case 'backfill':
+      return 'bg-sky-50 text-sky-800 ring-sky-200'
     case 'success':
       return 'bg-emerald-50 text-emerald-800 ring-emerald-200'
+    case 'timed_out':
+      return 'bg-zinc-200 text-zinc-700 ring-zinc-400'
     case 'removed':
       return 'bg-rose-50 text-rose-800 ring-rose-200'
     default:
@@ -174,8 +180,14 @@ function rowClassName(highlight: RowHighlight, row: BolhaAdRow): string {
   if (highlight === 'lookahead') {
     return 'bg-sky-500/10 ring-1 ring-inset ring-sky-500/35'
   }
+  if (row.status === 'backfill') {
+    return 'bg-sky-50/70 hover:bg-sky-50'
+  }
+  if (row.status === 'timed_out') {
+    return 'bg-zinc-100/80 hover:bg-zinc-100'
+  }
   const latest = latestScrapeResult(row.scrapes)
-  if (latest === 'empty') {
+  if (latest === 'empty' || row.status === 'empty') {
     return 'bg-yellow-50/80 hover:bg-yellow-50'
   }
   if (latest === 'error') {
@@ -554,7 +566,13 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
               now
             </span>
             <span className="inline-flex items-center gap-1">
+              <span className="size-2.5 rounded-sm bg-sky-500" /> backfill
+            </span>
+            <span className="inline-flex items-center gap-1">
               <span className="size-2.5 rounded-sm bg-emerald-500" /> success
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="size-2.5 rounded-sm bg-zinc-400" /> timed out
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="size-2.5 rounded-sm bg-yellow-500" /> empty (no ad)

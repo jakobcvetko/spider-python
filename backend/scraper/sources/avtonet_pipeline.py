@@ -19,16 +19,21 @@ from app.models import (
     AvtonetAdState,
     AvtonetScrapeMeta,
 )
+from app.matcher_jobs import enqueue_matcher_job
 from app.models.avtonet_ad import (
+    AD_STATUS_BACKFILL,
+    AD_STATUS_EMPTY,
     AD_STATUS_PENDING,
     AD_STATUS_REMOVED,
     AD_STATUS_SUCCESS,
+    AD_STATUS_TIMEDOUT,
     SCRAPE_RESULT_EMPTY,
     SCRAPE_RESULT_ERROR,
     SCRAPE_RESULT_REMOVED,
     SCRAPE_RESULT_SUCCESS,
 )
 from app.scraper_events import make_event
+from scraper.base import ScrapedItem, get_listing_id, upsert_items
 from scraper.sources.avto_net_common import (
     LISTING_SOURCE,
     LOOKAHEAD_ADS,
@@ -48,11 +53,18 @@ STATUS_FALLBACK_WARMING = "fallback_warming"
 STATUS_TIMED_OUT = "timed_out"
 STATUS_EXPIRED = "expired"
 
+FRONTIER_AD_STATUS_SOURCES = frozenset({"avto.net.lookahead", "avto.net.scout"})
+BACKFILL_AD_STATUS_SOURCES = frozenset({"avto.net.backfill"})
+BACKFILL_PROMOTE_STATUSES = (AD_STATUS_PENDING, AD_STATUS_EMPTY)
+
 LOOKAHEAD_TIMEOUT_SECONDS = 5.0
 LOOKAHEAD_HIGH_WATER_REFRESH_BATCHES = 50
-FALLBACK_CYCLE_PAUSE_SECONDS = 10
-FALLBACK_TIMEOUT_SECONDS = 300
-MAX_FALLBACK_IDS_PER_FETCH = 40
+BACKFILL_CYCLE_PAUSE_SECONDS = 10
+BACKFILL_TIMEOUT_SECONDS = 300
+BACKFILL_BATCH_SIZE = 5
+FALLBACK_CYCLE_PAUSE_SECONDS = BACKFILL_CYCLE_PAUSE_SECONDS
+FALLBACK_TIMEOUT_SECONDS = BACKFILL_TIMEOUT_SECONDS
+MAX_FALLBACK_IDS_PER_FETCH = BACKFILL_BATCH_SIZE
 
 
 def pipeline_kind_from_probe(result: ProbeResult) -> PipelineKind:
@@ -91,16 +103,33 @@ def scrape_result_from_outcome(outcome: str) -> str:
     return SCRAPE_RESULT_ERROR
 
 
-def ad_status_from_scrape_result(result: str) -> str:
+def ad_status_from_scrape_result(
+    result: str, *, source: str | None = None
+) -> str | None:
+    if source in FRONTIER_AD_STATUS_SOURCES:
+        if result == SCRAPE_RESULT_SUCCESS:
+            return AD_STATUS_SUCCESS
+        if result == SCRAPE_RESULT_EMPTY:
+            return AD_STATUS_EMPTY
+        return AD_STATUS_PENDING
     if result == SCRAPE_RESULT_SUCCESS:
         return AD_STATUS_SUCCESS
     if result == SCRAPE_RESULT_REMOVED:
         return AD_STATUS_REMOVED
+    if source in BACKFILL_AD_STATUS_SOURCES:
+        return None
     return AD_STATUS_PENDING
 
 
 def merge_ad_status(current: str, new: str) -> str:
-    rank = {AD_STATUS_PENDING: 0, AD_STATUS_REMOVED: 1, AD_STATUS_SUCCESS: 2}
+    rank = {
+        AD_STATUS_PENDING: 0,
+        AD_STATUS_EMPTY: 0,
+        AD_STATUS_BACKFILL: 1,
+        AD_STATUS_REMOVED: 2,
+        AD_STATUS_TIMEDOUT: 2,
+        AD_STATUS_SUCCESS: 3,
+    }
     if rank.get(new, 0) > rank.get(current, 0):
         return new
     return current
@@ -200,16 +229,18 @@ async def record_avtonet_ad_scrape(
     if detail:
         entry["detail"] = detail[:500]
 
-    new_status = ad_status_from_scrape_result(result)
+    resolved = ad_status_from_scrape_result(result, source=source)
     row = await db.get(AvtonetAd, ad_id)
     if row is None:
-        row = AvtonetAd(ad_id=ad_id, status=new_status, scrape_log=[entry])
+        initial = resolved if resolved is not None else AD_STATUS_PENDING
+        row = AvtonetAd(ad_id=ad_id, status=initial, scrape_log=[entry])
         db.add(row)
     else:
         log_entries = list(row.scrape_log or [])
         log_entries.append(entry)
         row.scrape_log = log_entries
-        row.status = merge_ad_status(row.status, new_status)
+        if resolved is not None:
+            row.status = merge_ad_status(row.status, resolved)
     await db.flush()
     if emit is not None:
         await db.refresh(row)
@@ -350,6 +381,24 @@ async def upsert_expired_state(
     await db.flush()
 
 
+async def promote_pending_below_to_backfill(
+    db: AsyncSession,
+    last_working_ad_id: int,
+    *,
+    now: datetime,
+) -> int:
+    result = await db.execute(
+        update(AvtonetAd)
+        .where(
+            AvtonetAd.ad_id < last_working_ad_id,
+            AvtonetAd.status.in_(BACKFILL_PROMOTE_STATUSES),
+        )
+        .values(status=AD_STATUS_BACKFILL, backfill_started_at=now)
+    )
+    await db.flush()
+    return int(result.rowcount or 0)
+
+
 async def promote_lookahead_below_to_pending_fallback(
     db: AsyncSession,
     found_ad_id: int,
@@ -357,20 +406,111 @@ async def promote_lookahead_below_to_pending_fallback(
     now: datetime,
 ) -> None:
     await db.execute(
-        update(AvtonetAdState)
-        .where(
+        delete(AvtonetAdState).where(
             AvtonetAdState.ad_id < found_ad_id,
             AvtonetAdState.status == STATUS_LOOKAHEAD,
         )
-        .values(
-            status=STATUS_PENDING_FALLBACK,
-            first_fallback_scrape_at=now,
-            last_lookahead_at=None,
-            last_outcome=None,
-            last_detail=None,
-        )
     )
+    await promote_pending_below_to_backfill(db, found_ad_id, now=now)
     await db.flush()
+
+
+async def activate_last_working_ad(
+    db: AsyncSession,
+    ad_id: int,
+    *,
+    item: ScrapedItem,
+    source: str,
+    emit: EmitFn = None,
+    now: datetime | None = None,
+) -> int:
+    now = now or datetime.now(timezone.utc)
+    promoted = await promote_pending_below_to_backfill(db, ad_id, now=now)
+    await delete_lookahead_below_ad(db, ad_id)
+    await delete_ad_state(db, ad_id)
+    await meta_set_last_working(db, ad_id)
+    try:
+        inserted = await upsert_items(db, LISTING_SOURCE, [item])
+    except Exception:
+        log.exception("avto.net activate_last_working: upsert failed ad_id=%s", ad_id)
+        inserted = 0
+    listing_id = await get_listing_id(db, LISTING_SOURCE, str(ad_id))
+    if listing_id is not None:
+        try:
+            await enqueue_matcher_job(db, listing_id)
+        except Exception:
+            log.exception(
+                "avto.net activate_last_working: matcher enqueue failed ad_id=%s", ad_id
+            )
+    log.info(
+        "avto.net activate_last_working: ad_id=%s source=%s promoted=%s inserted=%s",
+        ad_id,
+        source,
+        promoted,
+        inserted,
+    )
+    return inserted
+
+
+async def finalize_scout_last_working_advance(
+    db: AsyncSession,
+    client: httpx.AsyncClient,
+    ad_id: int,
+    *,
+    source_name: str,
+    emit: EmitFn = None,
+    settings: Settings | None = None,
+) -> PipelineKind | None:
+    settings = settings or get_settings()
+    now = datetime.now(timezone.utc)
+    try:
+        result = await fetch_probe(
+            client, ad_id, settings=settings, emit=emit, source=source_name
+        )
+    except httpx.HTTPError as e:
+        log.warning("avto.net scout finalize: probe %s failed: %s", ad_id, e)
+        await meta_set_last_working(db, ad_id)
+        return None
+    kind = pipeline_kind_from_probe(result)
+    oc = outcome_from_class(kind)
+    await upsert_probe(
+        db,
+        ad_id,
+        fetched_at=now,
+        http_status=result.http_status,
+        outcome=oc,
+        detail=result.detail,
+    )
+    await record_avtonet_ad_scrape_from_outcome(
+        db,
+        ad_id,
+        source=source_name,
+        outcome=oc,
+        fetched_at=now,
+        http_status=result.http_status,
+        detail=result.detail,
+        emit=emit,
+    )
+    if kind == "active" and result.item is not None:
+        await activate_last_working_ad(
+            db,
+            ad_id,
+            item=result.item,
+            source=source_name,
+            emit=emit,
+            now=now,
+        )
+        return kind
+    if kind == "expired":
+        await upsert_expired_state(
+            db, ad_id, now=now, last_outcome=oc, detail=result.detail
+        )
+        await delete_lookahead_below_ad(db, ad_id)
+        await meta_set_last_working(db, ad_id)
+        log.info("avto.net scout finalize: expired ad_id=%s, advanced last_working", ad_id)
+        return kind
+    await meta_set_last_working(db, ad_id)
+    return kind
 
 
 async def delete_ad_state(db: AsyncSession, ad_id: int) -> None:

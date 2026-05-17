@@ -15,8 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.database import SessionLocal
-from app.matcher_jobs import enqueue_matcher_job
-from scraper.base import get_listing_id, upsert_items
 from scraper.sources.avto_net_common import LISTING_SOURCE, LOOKAHEAD_ADS
 from scraper.sources.avto_net_probe import ProbeResult, probe_ad_id as fetch_probe
 from scraper.sources.avto_net_scout import run_avtonet_scout
@@ -24,7 +22,7 @@ from scraper.sources.avtonet_pipeline import (
     EmitFn,
     LOOKAHEAD_HIGH_WATER_REFRESH_BATCHES,
     LOOKAHEAD_TIMEOUT_SECONDS,
-    delete_ad_state,
+    activate_last_working_ad,
     delete_lookahead_below_ad,
     emit_progress_tick,
     get_meta,
@@ -33,7 +31,6 @@ from scraper.sources.avtonet_pipeline import (
     meta_set_last_working,
     outcome_from_class,
     pipeline_kind_from_probe,
-    promote_lookahead_below_to_pending_fallback,
     record_avtonet_ad_scrape_from_outcome,
     upsert_expired_state,
     upsert_lookahead_state,
@@ -206,32 +203,14 @@ class AvtoNetLookaheadSource:
                     outcome=oc,
                     http_status=result.http_status,
                 )
-                await promote_lookahead_below_to_pending_fallback(
-                    db, slot.ad_id, now=now
+                inserted = await activate_last_working_ad(
+                    db,
+                    slot.ad_id,
+                    item=result.item,
+                    source=self.name,
+                    emit=emit,
+                    now=now,
                 )
-                await delete_ad_state(db, slot.ad_id)
-                await meta_set_last_working(db, slot.ad_id)
-                try:
-                    inserted = await upsert_items(
-                        db, LISTING_SOURCE, [result.item]
-                    )
-                except Exception:
-                    log.exception(
-                        "avto.net lookahead: upsert failed for ad_id=%s",
-                        slot.ad_id,
-                    )
-                    inserted = 0
-
-                listing_id = await get_listing_id(db, LISTING_SOURCE, str(slot.ad_id))
-                if listing_id is not None:
-                    try:
-                        await enqueue_matcher_job(db, listing_id)
-                    except Exception:
-                        log.exception(
-                            "avto.net lookahead: matcher enqueue failed ad_id=%s",
-                            slot.ad_id,
-                        )
-
                 self._cached_db_max = max(self._cached_db_max or 0, slot.ad_id)
                 log.info(
                     "avto.net lookahead: active ad_id=%s (anchor was %s), inserted=%s",
