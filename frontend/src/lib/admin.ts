@@ -197,15 +197,94 @@ function latestScrapeAtMs(scrapes: BolhaAdScrapeEntry[]): number | null {
   return latest > -Infinity ? latest : null;
 }
 
-/** True when the row's most recent scrape attempt is within ``windowMs`` of ``nowMs``. */
-export function hasRecentScrape(
-  scrapes: BolhaAdScrapeEntry[],
+function rowLastActivityMs(row: BolhaAdRow): number | null {
+  let latest = latestScrapeAtMs(row.scrapes);
+  const updated = Date.parse(row.updated_at);
+  if (Number.isFinite(updated)) {
+    latest = latest == null ? updated : Math.max(latest, updated);
+  }
+  return latest;
+}
+
+/** True when the row had scrape or registry activity within ``windowMs`` of ``nowMs``. */
+export function hasRecentRowActivity(
+  row: BolhaAdRow,
   nowMs: number,
   windowMs = CONTROL_DASH_ACTIVE_SCRAPE_MS,
 ): boolean {
-  const latest = latestScrapeAtMs(scrapes);
+  const latest = rowLastActivityMs(row);
   if (latest == null) return false;
   return nowMs - latest <= windowMs;
+}
+
+function mergeScrapeEntries(
+  a: BolhaAdScrapeEntry[],
+  b: BolhaAdScrapeEntry[],
+): BolhaAdScrapeEntry[] {
+  const byAt = new Map<string, BolhaAdScrapeEntry>();
+  for (const s of [...a, ...b]) {
+    byAt.set(s.at, s);
+  }
+  return [...byAt.values()].sort(
+    (x, y) => Date.parse(x.at) - Date.parse(y.at),
+  );
+}
+
+function mergeControlDashAdRow(prev: BolhaAdRow, fetched: BolhaAdRow): BolhaAdRow {
+  const prevUpdated = Date.parse(prev.updated_at);
+  const fetchedUpdated = Date.parse(fetched.updated_at);
+  const updated_at =
+    Number.isFinite(prevUpdated) &&
+    Number.isFinite(fetchedUpdated) &&
+    prevUpdated > fetchedUpdated
+      ? prev.updated_at
+      : fetched.updated_at;
+  return {
+    ...fetched,
+    scrapes: mergeScrapeEntries(prev.scrapes, fetched.scrapes),
+    updated_at,
+    listing_created_at: fetched.listing_created_at ?? prev.listing_created_at,
+    listing_published_at:
+      fetched.listing_published_at ?? prev.listing_published_at,
+  };
+}
+
+/** Keep WS-patched scrape logs when a refetch returns slightly stale registry rows. */
+export function mergeControlDashAdsRows(
+  prev: BolhaAdRow[] | undefined,
+  fetched: BolhaAdRow[],
+  limit: number,
+): BolhaAdRow[] {
+  if (!prev?.length) {
+    return fetched.slice(0, limit);
+  }
+  const byId = new Map(fetched.map((row) => [row.ad_id, row]));
+  for (const p of prev) {
+    const f = byId.get(p.ad_id);
+    byId.set(p.ad_id, f ? mergeControlDashAdRow(p, f) : p);
+  }
+  return [...byId.values()]
+    .sort((a, b) => b.ad_id - a.ad_id)
+    .slice(0, limit);
+}
+
+const controlDashRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleControlDashAdsRefresh(
+  qc: QueryClient,
+  queryKey: readonly unknown[],
+  delayMs = 3000,
+): void {
+  const key = JSON.stringify(queryKey);
+  const existing = controlDashRefreshTimers.get(key);
+  if (existing) clearTimeout(existing);
+  controlDashRefreshTimers.set(
+    key,
+    setTimeout(() => {
+      controlDashRefreshTimers.delete(key);
+      void qc.invalidateQueries({ queryKey });
+    }, delayMs),
+  );
 }
 
 /**
@@ -222,7 +301,7 @@ export function filterControlDashAdsRows<T extends BolhaAdRow>(
     .filter(
       (row) =>
         (pinAdId > 0 && row.ad_id === pinAdId) ||
-        hasRecentScrape(row.scrapes, nowMs),
+        hasRecentRowActivity(row, nowMs),
     )
     .sort((a, b) => b.ad_id - a.ad_id)
     .slice(0, limit);
@@ -386,7 +465,7 @@ export function applyBolhaAdWsEvent(
         !listingCreatedAt &&
         !cur.listing_created_at
       ) {
-        void qc.invalidateQueries({ queryKey: bolhaAdsQueryKey(limit) });
+        scheduleControlDashAdsRefresh(qc, bolhaAdsQueryKey(limit));
       }
       return next;
     }
@@ -400,7 +479,7 @@ export function applyBolhaAdWsEvent(
       listing_published_at: listingPublishedAt,
     };
     if (ev.data.status === "success" && !listingCreatedAt) {
-      void qc.invalidateQueries({ queryKey: bolhaAdsQueryKey(limit) });
+      scheduleControlDashAdsRefresh(qc, bolhaAdsQueryKey(limit));
     }
     return [row, ...prev].sort((a, b) => b.ad_id - a.ad_id).slice(0, limit);
   });
@@ -478,7 +557,7 @@ export function applyAvtonetAdWsEvent(
         !listingCreatedAt &&
         !cur.listing_created_at
       ) {
-        void qc.invalidateQueries({ queryKey: avtonetAdsQueryKey(limit) });
+        scheduleControlDashAdsRefresh(qc, avtonetAdsQueryKey(limit));
       }
       return next;
     }
@@ -492,7 +571,7 @@ export function applyAvtonetAdWsEvent(
       listing_published_at: listingPublishedAt,
     };
     if (ev.data.status === "success" && !listingCreatedAt) {
-      void qc.invalidateQueries({ queryKey: avtonetAdsQueryKey(limit) });
+      scheduleControlDashAdsRefresh(qc, avtonetAdsQueryKey(limit));
     }
     return [row, ...prev].sort((a, b) => b.ad_id - a.ad_id).slice(0, limit);
   });
@@ -598,13 +677,15 @@ export function useBolhaAdsWsSync(
 }
 
 export function useBolhaAds(enabled: boolean, limit = BOLHA_ADS_TOP_LIMIT) {
+  const qc = useQueryClient();
   return useQuery<BolhaAdRow[]>({
     queryKey: bolhaAdsQueryKey(limit),
     queryFn: async () => {
       const { data } = await api.get<BolhaAdRow[]>("/admin/bolha/ads", {
         params: { limit },
       });
-      return data;
+      const prev = qc.getQueryData<BolhaAdRow[]>(bolhaAdsQueryKey(limit));
+      return mergeControlDashAdsRows(prev, data, limit);
     },
     enabled,
     staleTime: Infinity,
@@ -715,13 +796,15 @@ export function useAvtonetAdsWsSync(
 }
 
 export function useAvtonetAds(enabled: boolean, limit = AVTONET_ADS_TOP_LIMIT) {
+  const qc = useQueryClient();
   return useQuery<AvtonetAdRow[]>({
     queryKey: avtonetAdsQueryKey(limit),
     queryFn: async () => {
       const { data } = await api.get<AvtonetAdRow[]>("/admin/avtonet/ads", {
         params: { limit },
       });
-      return data;
+      const prev = qc.getQueryData<AvtonetAdRow[]>(avtonetAdsQueryKey(limit));
+      return mergeControlDashAdsRows(prev, data, limit);
     },
     enabled,
     staleTime: Infinity,
