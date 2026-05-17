@@ -24,10 +24,6 @@ from app.models import (
     AvtonetInactiveAd,
     AvtonetScrapeMeta,
     BolhaAd,
-    BolhaAdProbe,
-    BolhaAdState,
-    BolhaInactiveAd,
-    BolhaScrapeMeta,
     Listing,
     User,
 )
@@ -140,175 +136,6 @@ async def run_source_scrape(
         {"action": "run_source", "source": body.source, "reason": reason}
     )
     return RunSourceResponse(queued=True, reason=reason, source=body.source)
-
-
-@router.get("/bolha/progressive-state", response_model=BolhaProgressiveState)
-async def bolha_progressive_state(
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
-) -> BolhaProgressiveState:
-    from scraper.sources.bolha_common import LOOKAHEAD_ADS
-
-    now = datetime.now(timezone.utc)
-    meta = await db.get(BolhaScrapeMeta, 1)
-    if meta is None:
-        hp_max = 0
-        high_water = 0
-        lw = 0
-        last_working_at = None
-        last_fetch_started_at = None
-    else:
-        hp_max = int(meta.last_homepage_max or 0)
-        high_water = int(meta.last_fetch_high_water or 0)
-        lw = int(meta.last_working_ad_id or 0)
-        last_working_at = meta.last_working_at
-        last_fetch_started_at = meta.last_fetch_started_at
-
-    r = await db.execute(
-        text(
-            """
-            SELECT MAX(CAST(external_id AS BIGINT))
-            FROM listings
-            WHERE source = 'bolha.com' AND external_id ~ '^[0-9]+$'
-            """
-        )
-    )
-    db_max_raw = r.scalar_one_or_none()
-    db_max = int(db_max_raw) if db_max_raw is not None else 0
-
-    scan_anchor = max(hp_max, high_water, db_max)
-    pivot_id = lw if lw > 0 else scan_anchor
-
-    la_ids = list(range(pivot_id + 1, pivot_id + LOOKAHEAD_ADS + 1))
-    tail_ids = list(range(pivot_id + 1, pivot_id + 101))
-    all_ids = sorted(set([pivot_id] + la_ids + tail_ids))
-
-    probes = (
-        (
-            await db.execute(select(BolhaAdProbe).where(BolhaAdProbe.ad_id.in_(all_ids)))
-        )
-        .scalars()
-        .all()
-    )
-    probe_by_id = {p.ad_id: p for p in probes}
-
-    in_rows = (
-        (
-            await db.execute(
-                select(BolhaInactiveAd).where(BolhaInactiveAd.ad_id.in_(all_ids))
-            )
-        )
-        .scalars()
-        .all()
-    )
-    inactive_by_id = {r.ad_id: r for r in in_rows}
-
-    st_rows = (
-        (await db.execute(select(BolhaAdState).where(BolhaAdState.ad_id.in_(all_ids))))
-        .scalars()
-        .all()
-    )
-    state_by_id = {r.ad_id: r for r in st_rows}
-
-    def build_row(
-        ad_id: int,
-        *,
-        zone: str,
-    ) -> BolhaProgressiveRow:
-        pr = probe_by_id.get(ad_id)
-        inc = inactive_by_id.get(ad_id)
-        st = state_by_id.get(ad_id)
-        pipeline = st.status if st else None
-
-        if pr is None:
-            disp = "no_info"
-            if st is not None:
-                if st.status == "timed_out":
-                    disp = "timed_out"
-                elif st.status == "expired":
-                    disp = "expired"
-                elif st.status in ("pending_fallback", "fallback_warming"):
-                    disp = "in_progress"
-                elif st.status == "lookahead":
-                    disp = "inactive"
-            return BolhaProgressiveRow(
-                ad_id=ad_id,
-                zone=zone,
-                display_status=disp,
-                outcome=None,
-                http_status=None,
-                gtm_ad_status=None,
-                fetched_at=None,
-                inactive_age_seconds=None,
-                detail=None,
-                pipeline_status=pipeline,
-            )
-        oc = pr.outcome
-        age_s: float | None = None
-        if (
-            st is not None
-            and st.first_fallback_scrape_at is not None
-            and st.status in ("pending_fallback", "fallback_warming")
-        ):
-            age_s = (now - st.first_fallback_scrape_at).total_seconds()
-        elif inc is not None:
-            age_s = (now - inc.first_inactive_at).total_seconds()
-
-        if st is not None and st.status == "timed_out":
-            disp = "timed_out"
-        elif st is not None and st.status == "expired":
-            disp = "expired"
-        elif st is not None and st.status in ("pending_fallback", "fallback_warming"):
-            disp = "successful" if oc == "active" else "in_progress"
-        elif oc == "active":
-            disp = "successful"
-        elif oc == "expired":
-            disp = "expired"
-        elif oc == "not_yet_created":
-            disp = "not_yet_created"
-        elif oc == "past_warming":
-            disp = "in_progress"
-        elif oc == "past_timed_out":
-            disp = "timed_out"
-        elif oc in ("http_error", "bad_http_status"):
-            disp = "error"
-        elif oc == "inactive_non_active":
-            disp = "inactive"
-        else:
-            disp = "inactive"
-
-        return BolhaProgressiveRow(
-            ad_id=ad_id,
-            zone=zone,
-            display_status=disp,
-            outcome=oc,
-            http_status=pr.http_status,
-            gtm_ad_status=pr.gtm_ad_status,
-            fetched_at=pr.fetched_at,
-            inactive_age_seconds=round(age_s, 1) if age_s is not None else None,
-            detail=pr.detail,
-            pipeline_status=pipeline,
-        )
-
-    lookahead_rows = [
-        build_row(i, zone="lookahead") for i in la_ids
-    ]
-    pivot_row = build_row(pivot_id, zone="last_working" if lw > 0 else "anchor")
-    tail_rows = [build_row(i, zone="tail") for i in tail_ids]
-
-    return BolhaProgressiveState(
-        look_ahead_count=LOOKAHEAD_ADS,
-        last_working_ad_id=lw,
-        last_working_at=last_working_at,
-        scan_anchor_ad_id=scan_anchor,
-        last_homepage_max=hp_max,
-        last_fetch_high_water=high_water,
-        last_fetch_started_at=last_fetch_started_at,
-        db_numeric_max=db_max,
-        lookahead_rows=lookahead_rows,
-        pivot_row=pivot_row,
-        tail_rows=tail_rows,
-    )
 
 
 @router.get("/avtonet/progressive-state", response_model=BolhaProgressiveState)
@@ -551,17 +378,6 @@ async def run_matcher_for_bolha_ad(
         listing_id=listing_id,
         matches_created=len(new_matches),
     )
-
-
-@router.get("/bolha/ad-states", response_model=list[BolhaAdStateOut])
-async def bolha_ad_states(
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
-    limit: int = Query(default=10_000, ge=1, le=50_000),
-) -> list[BolhaAdState]:
-    stmt = select(BolhaAdState).order_by(BolhaAdState.ad_id.desc()).limit(limit)
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
 
 
 @router.get("/avtonet/state", response_model=AvtonetScrapeState)

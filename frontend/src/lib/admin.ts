@@ -67,8 +67,6 @@ export const adminKeys = {
   users: ["admin", "users"] as const,
   scraperStatus: ["admin", "scraper", "status"] as const,
   listingsRoot: ["admin", "listings"] as const,
-  bolhaProgressive: ["admin", "bolha", "progressive"] as const,
-  bolhaAdStates: ["admin", "bolha", "ad-states"] as const,
   bolhaAds: ["admin", "bolha", "ads"] as const,
   avtonetAds: ["admin", "avtonet", "ads"] as const,
   avtonetState: ["admin", "avtonet", "state"] as const,
@@ -165,18 +163,6 @@ export type BolhaProgressiveState = {
   lookahead_rows: BolhaProgressiveRow[];
   pivot_row: BolhaProgressiveRow;
   tail_rows: BolhaProgressiveRow[];
-};
-
-export type BolhaAdStateRow = {
-  ad_id: number;
-  status: string;
-  last_lookahead_at: string | null;
-  first_fallback_scrape_at: string | null;
-  last_fallback_scrape_at: string | null;
-  last_outcome: string | null;
-  last_detail: string | null;
-  created_at: string;
-  updated_at: string;
 };
 
 export type BolhaAdScrapeEntry = {
@@ -844,37 +830,6 @@ function notifyScraperEventListeners(ev: ScraperEvent): void {
   }
 }
 
-export function useBolhaAdStates(enabled: boolean, limit = 10_000) {
-  return useQuery<BolhaAdStateRow[]>({
-    queryKey: [...adminKeys.bolhaAdStates, limit] as const,
-    queryFn: async () => {
-      const { data } = await api.get<BolhaAdStateRow[]>(
-        "/admin/bolha/ad-states",
-        {
-          params: { limit },
-        },
-      );
-      return data;
-    },
-    enabled,
-    refetchInterval: enabled ? 500 : false,
-  });
-}
-
-export function useBolhaProgressiveState(enabled: boolean) {
-  return useQuery<BolhaProgressiveState>({
-    queryKey: adminKeys.bolhaProgressive,
-    queryFn: async () => {
-      const { data } = await api.get<BolhaProgressiveState>(
-        "/admin/bolha/progressive-state",
-      );
-      return data;
-    },
-    enabled,
-    refetchInterval: enabled ? 500 : false,
-  });
-}
-
 export type AvtonetProgressiveState = BolhaProgressiveState;
 
 export function useAvtonetProgressiveState(enabled: boolean) {
@@ -891,7 +846,17 @@ export function useAvtonetProgressiveState(enabled: boolean) {
   });
 }
 
-export type AvtonetAdStateRow = BolhaAdStateRow;
+export type AvtonetAdStateRow = {
+  ad_id: number;
+  status: string;
+  last_lookahead_at: string | null;
+  first_fallback_scrape_at: string | null;
+  last_fallback_scrape_at: string | null;
+  last_outcome: string | null;
+  last_detail: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 export function useAvtonetAdStates(enabled: boolean, limit = 10_000) {
   return useQuery<AvtonetAdStateRow[]>({
@@ -959,8 +924,6 @@ export function useTriggerScraper() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.scraperStatus });
       qc.invalidateQueries({ queryKey: adminKeys.listingsRoot });
-      qc.invalidateQueries({ queryKey: adminKeys.bolhaProgressive });
-      qc.invalidateQueries({ queryKey: adminKeys.bolhaAdStates });
       qc.invalidateQueries({ queryKey: adminKeys.bolhaAds });
       qc.invalidateQueries({ queryKey: adminKeys.avtonetAds });
       qc.invalidateQueries({ queryKey: adminKeys.avtonetState });
@@ -989,8 +952,6 @@ export function useRunSourceScrape() {
         source === "bolha.backfill" ||
         source === "bolha.scout"
       ) {
-        qc.invalidateQueries({ queryKey: adminKeys.bolhaProgressive });
-        qc.invalidateQueries({ queryKey: adminKeys.bolhaAdStates });
         qc.invalidateQueries({ queryKey: adminKeys.bolhaAds });
       }
       if (

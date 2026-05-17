@@ -5,9 +5,6 @@ from app.models.avtonet_ad_state import AvtonetAdState
 from app.models.avtonet_inactive_ad import AvtonetInactiveAd
 from app.models.avtonet_scrape_meta import AvtonetScrapeMeta
 from app.models.bolha_ad import BolhaAd
-from app.models.bolha_ad_probe import BolhaAdProbe
-from app.models.bolha_ad_state import BolhaAdState
-from app.models.bolha_inactive_ad import BolhaInactiveAd
 from app.models.bolha_scrape_meta import BolhaScrapeMeta
 from app.models.listing import Listing
 from app.models.scraper import Scraper
@@ -24,10 +21,7 @@ __all__ = [
     "Scraper",
     "ScraperMatch",
     "Listing",
-    "BolhaInactiveAd",
     "BolhaScrapeMeta",
-    "BolhaAdProbe",
-    "BolhaAdState",
     "BolhaAd",
     "AvtonetAd",
     "AvtonetAdProbe",

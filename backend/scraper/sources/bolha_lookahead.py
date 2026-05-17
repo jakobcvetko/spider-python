@@ -25,7 +25,6 @@ from scraper.sources.bolha_common import (
     LOOKAHEAD_PROBE_TIMEOUT_SECONDS,
     LOOKAHEAD_TIMEOUT_SECONDS,
     classify_probe_response,
-    delete_lookahead_below_ad,
     emit_progress_tick,
     fetch_probe_http,
     get_meta,
@@ -37,9 +36,6 @@ from scraper.sources.bolha_common import (
     outcome_from_class,
     record_bolha_ad_scrape,
     record_bolha_ad_scrape_from_outcome,
-    upsert_expired_state,
-    upsert_lookahead_state,
-    upsert_probe,
 )
 
 log = logging.getLogger(__name__)
@@ -125,15 +121,6 @@ class BolhaLookaheadSource:
         emit: EmitFn,
     ) -> None:
         detail = (slot.http_error or "unknown")[:500]
-        await upsert_probe(
-            db,
-            slot.ad_id,
-            fetched_at=now,
-            http_status=-1,
-            gtm_ad_status=None,
-            outcome="http_error",
-            detail=detail,
-        )
         await record_bolha_ad_scrape(
             db,
             slot.ad_id,
@@ -143,13 +130,6 @@ class BolhaLookaheadSource:
             http_status=-1,
             detail=detail,
             emit=emit,
-        )
-        await upsert_lookahead_state(
-            db,
-            slot.ad_id,
-            now=now,
-            last_outcome="http_error",
-            detail=detail,
         )
         await emit_progress_tick(
             emit,
@@ -191,15 +171,6 @@ class BolhaLookaheadSource:
             )
             oc = outcome_from_class(kind)
 
-            await upsert_probe(
-                db,
-                slot.ad_id,
-                fetched_at=now,
-                http_status=http_st,
-                gtm_ad_status=gtm,
-                outcome=oc,
-                detail=None,
-            )
             await record_bolha_ad_scrape_from_outcome(
                 db,
                 slot.ad_id,
@@ -250,10 +221,6 @@ class BolhaLookaheadSource:
                     http_status=http_st,
                     gtm_ad_status=gtm,
                 )
-                await upsert_expired_state(
-                    db, slot.ad_id, now=now, last_outcome=oc, detail=None
-                )
-                await delete_lookahead_below_ad(db, slot.ad_id)
                 await meta_set_last_working(db, slot.ad_id)
                 await db.commit()
                 log.info(
@@ -264,13 +231,6 @@ class BolhaLookaheadSource:
                 )
                 return True
 
-            await upsert_lookahead_state(
-                db,
-                slot.ad_id,
-                now=now,
-                last_outcome=oc,
-                detail=None,
-            )
             await emit_progress_tick(
                 emit,
                 scraper_name=self.name,

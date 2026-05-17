@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
 
-# Ad-level status (distinct from bolha_ad_states pipeline statuses).
+# Ad-level status for the bolha_ads registry (lookahead / backfill lifecycle).
 AD_STATUS_PENDING = "pending"
 AD_STATUS_EMPTY = "empty"
 AD_STATUS_BACKFILL = "backfill"

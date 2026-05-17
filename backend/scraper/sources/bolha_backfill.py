@@ -27,14 +27,12 @@ from scraper.sources.bolha_common import (
     LISTING_SOURCE,
     SCOUT_HTTP_RETRIES,
     classify_probe_response,
-    delete_ad_state,
     emit_progress_tick,
     get_meta,
     outcome_from_class,
     parse_active_detail,
     record_bolha_ad_scrape,
     record_bolha_ad_scrape_from_outcome,
-    upsert_probe,
 )
 
 log = logging.getLogger(__name__)
@@ -100,15 +98,6 @@ class BolhaBackfillSource:
                     )
                 except httpx.HTTPError as e:
                     log.warning("bolha backfill: probe %s failed: %s", ad_id, e)
-                    await upsert_probe(
-                        db,
-                        ad_id,
-                        fetched_at=now,
-                        http_status=-1,
-                        gtm_ad_status=None,
-                        outcome="http_error",
-                        detail=str(e)[:500],
-                    )
                     await record_bolha_ad_scrape(
                         db,
                         ad_id,
@@ -140,15 +129,6 @@ class BolhaBackfillSource:
                 )
                 oc = outcome_from_class(kind)
 
-                await upsert_probe(
-                    db,
-                    ad_id,
-                    fetched_at=now,
-                    http_status=http_st,
-                    gtm_ad_status=gtm,
-                    outcome=oc,
-                    detail=None,
-                )
                 await record_bolha_ad_scrape_from_outcome(
                     db,
                     ad_id,
@@ -172,7 +152,6 @@ class BolhaBackfillSource:
                 if kind == "active":
                     item = parse_active_detail(html, ad_id)
                     collected.append(item)
-                    await delete_ad_state(db, ad_id)
                     try:
                         await upsert_items(db, LISTING_SOURCE, [item])
                     except Exception:
@@ -193,7 +172,6 @@ class BolhaBackfillSource:
                     continue
 
                 if kind == "expired":
-                    await delete_ad_state(db, ad_id)
                     await db.execute(
                         update(BolhaAd)
                         .where(BolhaAd.ad_id == ad_id)

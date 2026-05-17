@@ -422,7 +422,7 @@ Internet → Caddy (:443) → api (uvicorn :8000, serves React from backend/publ
 
 - **api** — `uvicorn app.main:app`; static SPA + `/api/*`; `scraper_events` LISTEN for admin WS.
 - **worker-lookahead** — `python -m scraper.worker --sources bolha.lookahead`; frontier probe via Bolha iAPI; updates `bolha_ads`, creates `listings`, enqueues matcher.
-- **worker-backfill** — `--sources bolha.backfill`; processes `bolha_ad_states` in fallback pipeline.
+- **worker-backfill** — `--sources bolha.backfill`; processes `bolha_ads` rows with `status = backfill`.
 - **worker-matcher** — `python -m matcher.worker`; LISTEN `matcher_jobs`.
 - **db** — Postgres 16, volume `spider_spider_pg_data`.
 - **caddy** — TLS for `$DOMAIN` from `.env`.
