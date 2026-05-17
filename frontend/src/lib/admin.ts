@@ -89,7 +89,8 @@ export type AdminListingMatch = {
 
 export const adminKeys = {
   users: ["admin", "users"] as const,
-  userActivities: (userId: string) => ["admin", "users", userId, "activities"] as const,
+  userActivities: (userId: string) =>
+    ["admin", "users", userId, "activities"] as const,
   scraperStatus: ["admin", "scraper", "status"] as const,
   listingsRoot: ["admin", "listings"] as const,
   bolhaAds: ["admin", "bolha", "ads"] as const,
@@ -161,7 +162,10 @@ export function useAdminUsers(enabled: boolean) {
   });
 }
 
-export function useAdminUserActivities(userId: string | null, enabled: boolean) {
+export function useAdminUserActivities(
+  userId: string | null,
+  enabled: boolean,
+) {
   return useQuery<UserActivity[]>({
     queryKey: adminKeys.userActivities(userId ?? ""),
     queryFn: async () => {
