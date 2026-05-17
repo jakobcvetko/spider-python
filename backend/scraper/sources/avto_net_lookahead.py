@@ -82,18 +82,23 @@ class AvtoNetLookaheadSource:
         emit: EmitFn,
     ) -> list[_ProbeSlot]:
         async def _one(ad_id: int) -> _ProbeSlot:
-            try:
-                result = await fetch_probe(
-                    client,
+            result = await fetch_probe(
+                client,
+                ad_id,
+                settings=settings,
+                emit=emit,
+                source=self.name,
+            )
+            if result.http_status < 0:
+                log.warning(
+                    "avto.net lookahead: probe %s failed: %s",
                     ad_id,
-                    settings=settings,
-                    emit=emit,
-                    source=self.name,
+                    result.detail,
                 )
-                return _ProbeSlot(ad_id=ad_id, result=result)
-            except httpx.HTTPError as e:
-                log.warning("avto.net lookahead: probe %s failed: %s", ad_id, e)
-                return _ProbeSlot(ad_id=ad_id, http_error=str(e))
+                return _ProbeSlot(
+                    ad_id=ad_id, http_error=result.detail or "http_error"
+                )
+            return _ProbeSlot(ad_id=ad_id, result=result)
 
         return list(await asyncio.gather(*[_one(ad_id) for ad_id in ad_ids]))
 

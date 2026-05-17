@@ -17,6 +17,7 @@ from app.models.bolha_ad import (
     AD_STATUS_TIMEDOUT,
 )
 from scraper.base import ScrapedItem, get_listing_id, upsert_items
+from scraper.http_retries import httpx_get_with_retries
 from scraper.sources.bolha_common import (
     AD_PROBE_URL_TEMPLATE,
     BACKFILL_BATCH_SIZE,
@@ -24,6 +25,7 @@ from scraper.sources.bolha_common import (
     BACKFILL_TIMEOUT_SECONDS,
     EmitFn,
     LISTING_SOURCE,
+    SCOUT_HTTP_RETRIES,
     classify_probe_response,
     delete_ad_state,
     emit_progress_tick,
@@ -90,7 +92,12 @@ class BolhaBackfillSource:
 
                 url = AD_PROBE_URL_TEMPLATE.format(ad_id=ad_id)
                 try:
-                    resp = await client.get(url, timeout=25.0)
+                    resp = await httpx_get_with_retries(
+                        client,
+                        url,
+                        timeout=25.0,
+                        max_attempts=SCOUT_HTTP_RETRIES,
+                    )
                 except httpx.HTTPError as e:
                     log.warning("bolha backfill: probe %s failed: %s", ad_id, e)
                     await upsert_probe(

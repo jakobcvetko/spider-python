@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,3 +32,6 @@ class Listing(Base, TimestampMixin):
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mileage_km: Mapped[int | None] = mapped_column(Integer, nullable=True)
     price_decimal: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

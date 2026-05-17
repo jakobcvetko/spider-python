@@ -191,6 +191,8 @@ export type BolhaAdRow = {
   created_at: string;
   updated_at: string;
   scrapes: BolhaAdScrapeEntry[];
+  listing_published_at?: string | null;
+  listing_created_at?: string | null;
 };
 
 export type AvtonetAdScrapeEntry = BolhaAdScrapeEntry;
@@ -279,6 +281,15 @@ export function applyBolhaAdWsEvent(
   if (ev.kind !== "bolha_ad_update" || !ev.data) return false;
   if (ev.data._truncated) return false;
 
+  const listingPublishedAt =
+    typeof ev.data.listing_published_at === "string"
+      ? ev.data.listing_published_at
+      : null;
+  const listingCreatedAt =
+    typeof ev.data.listing_created_at === "string"
+      ? ev.data.listing_created_at
+      : null;
+
   const legacyRow = ev.data.row != null ? parseBolhaAdRow(ev.data.row) : null;
   if (legacyRow) {
     qc.setQueryData<BolhaAdRow[]>(bolhaAdsQueryKey(limit), (prev) => {
@@ -318,12 +329,22 @@ export function applyBolhaAdWsEvent(
       const cur = prev[idx];
       if (cur.scrapes.some((s) => s.at === scrape.at)) return prev;
       const next = prev.slice();
-      next[idx] = {
+      const nextRow: BolhaAdRow = {
         ...cur,
         status: ev.data.status as string,
         updated_at: updatedAt,
         scrapes: [...cur.scrapes, scrape],
       };
+      if (listingCreatedAt) nextRow.listing_created_at = listingCreatedAt;
+      if (listingPublishedAt) nextRow.listing_published_at = listingPublishedAt;
+      next[idx] = nextRow;
+      if (
+        ev.data.status === "success" &&
+        !listingCreatedAt &&
+        !cur.listing_created_at
+      ) {
+        void qc.invalidateQueries({ queryKey: bolhaAdsQueryKey(limit) });
+      }
       return next;
     }
     const row: BolhaAdRow = {
@@ -332,7 +353,12 @@ export function applyBolhaAdWsEvent(
       created_at: createdAt,
       updated_at: updatedAt,
       scrapes: [scrape],
+      listing_created_at: listingCreatedAt,
+      listing_published_at: listingPublishedAt,
     };
+    if (ev.data.status === "success" && !listingCreatedAt) {
+      void qc.invalidateQueries({ queryKey: bolhaAdsQueryKey(limit) });
+    }
     return [row, ...prev].sort((a, b) => b.ad_id - a.ad_id).slice(0, limit);
   });
   return true;
@@ -346,6 +372,15 @@ export function applyAvtonetAdWsEvent(
 ): boolean {
   if (ev.kind !== "avtonet_ad_update" || !ev.data) return false;
   if (ev.data._truncated) return false;
+
+  const listingPublishedAt =
+    typeof ev.data.listing_published_at === "string"
+      ? ev.data.listing_published_at
+      : null;
+  const listingCreatedAt =
+    typeof ev.data.listing_created_at === "string"
+      ? ev.data.listing_created_at
+      : null;
 
   const legacyRow = ev.data.row != null ? parseBolhaAdRow(ev.data.row) : null;
   if (legacyRow) {
@@ -386,12 +421,22 @@ export function applyAvtonetAdWsEvent(
       const cur = prev[idx];
       if (cur.scrapes.some((s) => s.at === scrape.at)) return prev;
       const next = prev.slice();
-      next[idx] = {
+      const nextRow: AvtonetAdRow = {
         ...cur,
         status: ev.data.status as string,
         updated_at: updatedAt,
         scrapes: [...cur.scrapes, scrape],
       };
+      if (listingCreatedAt) nextRow.listing_created_at = listingCreatedAt;
+      if (listingPublishedAt) nextRow.listing_published_at = listingPublishedAt;
+      next[idx] = nextRow;
+      if (
+        ev.data.status === "success" &&
+        !listingCreatedAt &&
+        !cur.listing_created_at
+      ) {
+        void qc.invalidateQueries({ queryKey: avtonetAdsQueryKey(limit) });
+      }
       return next;
     }
     const row: AvtonetAdRow = {
@@ -400,7 +445,12 @@ export function applyAvtonetAdWsEvent(
       created_at: createdAt,
       updated_at: updatedAt,
       scrapes: [scrape],
+      listing_created_at: listingCreatedAt,
+      listing_published_at: listingPublishedAt,
     };
+    if (ev.data.status === "success" && !listingCreatedAt) {
+      void qc.invalidateQueries({ queryKey: avtonetAdsQueryKey(limit) });
+    }
     return [row, ...prev].sort((a, b) => b.ad_id - a.ad_id).slice(0, limit);
   });
   return true;

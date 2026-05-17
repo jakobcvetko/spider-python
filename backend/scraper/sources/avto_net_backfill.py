@@ -90,23 +90,23 @@ class AvtoNetBackfillSource:
                     await _mark_timed_out(db, ad_id, now=now)
                     continue
 
-                try:
-                    result = await fetch_probe(
-                        client,
-                        ad_id,
-                        settings=settings,
-                        emit=emit,
-                        source=self.name,
-                    )
-                except httpx.HTTPError as e:
-                    log.warning("avto.net backfill: probe %s failed: %s", ad_id, e)
+                result = await fetch_probe(
+                    client,
+                    ad_id,
+                    settings=settings,
+                    emit=emit,
+                    source=self.name,
+                )
+                if result.http_status < 0:
+                    detail = (result.detail or "http_error")[:500]
+                    log.warning("avto.net backfill: probe %s failed: %s", ad_id, detail)
                     await upsert_probe(
                         db,
                         ad_id,
                         fetched_at=now,
                         http_status=-1,
                         outcome="http_error",
-                        detail=str(e)[:500],
+                        detail=detail,
                     )
                     await record_avtonet_ad_scrape_from_outcome(
                         db,
@@ -115,7 +115,7 @@ class AvtoNetBackfillSource:
                         outcome="http_error",
                         fetched_at=now,
                         http_status=-1,
-                        detail=str(e),
+                        detail=result.detail,
                         emit=emit,
                     )
                     await emit_progress_tick(

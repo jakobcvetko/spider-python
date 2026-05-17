@@ -14,6 +14,7 @@ export type Listing = {
   image_url: string | null
   year: number | null
   mileage_km: number | null
+  published_at: string | null
   created_at: string
 }
 

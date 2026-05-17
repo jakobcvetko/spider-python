@@ -11,10 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import SessionLocal
 from scraper.sources.bolha_scout import run_bolha_scout
+from scraper.http_retries import httpx_get_with_retries
 from scraper.sources.bolha_common import (
-    AD_PROBE_URL_TEMPLATE,
     EmitFn,
     IAPI_HOME_URL,
+    SCOUT_HTTP_RETRIES,
     activate_last_working_ad,
     make_probe_client,
     LISTING_SOURCE,
@@ -26,6 +27,7 @@ from scraper.sources.bolha_common import (
     classify_probe_response,
     delete_lookahead_below_ad,
     emit_progress_tick,
+    fetch_probe_http,
     get_meta,
     max_ad_id_from_homepage_html,
     max_numeric_listing_id,
@@ -80,7 +82,12 @@ class BolhaLookaheadSource:
 
         if self._batch_count % LOOKAHEAD_HOMEPAGE_REFRESH_BATCHES == 0:
             try:
-                home = await probe.get(IAPI_HOME_URL, timeout=LOOKAHEAD_PROBE_TIMEOUT_SECONDS)
+                home = await httpx_get_with_retries(
+                    probe,
+                    IAPI_HOME_URL,
+                    timeout=LOOKAHEAD_PROBE_TIMEOUT_SECONDS,
+                    max_attempts=SCOUT_HTTP_RETRIES,
+                )
                 if home.status_code == 200:
                     hp_max = max_ad_id_from_homepage_html(home.text)
                     await meta_set_homepage_max(db, hp_max)
@@ -96,13 +103,14 @@ class BolhaLookaheadSource:
         ad_ids: list[int],
     ) -> list[_ProbeSlot]:
         async def _one(ad_id: int) -> _ProbeSlot:
-            url = AD_PROBE_URL_TEMPLATE.format(ad_id=ad_id)
-            try:
-                resp = await probe.get(url)
-                return _ProbeSlot(ad_id=ad_id, resp=resp, html=resp.text)
-            except httpx.HTTPError as e:
-                log.warning("bolha lookahead: probe %s failed: %s", ad_id, e)
-                return _ProbeSlot(ad_id=ad_id, http_error=str(e))
+            fetch = await fetch_probe_http(probe, ad_id)
+            if fetch.http_error is not None:
+                log.warning("bolha lookahead: probe %s failed: %s", ad_id, fetch.http_error)
+                return _ProbeSlot(ad_id=ad_id, http_error=fetch.http_error)
+            assert fetch.resp is not None
+            return _ProbeSlot(
+                ad_id=ad_id, resp=fetch.resp, html=fetch.resp.text
+            )
 
         return list(await asyncio.gather(*[_one(ad_id) for ad_id in ad_ids]))
 

@@ -18,4 +18,5 @@ class ListingOut(BaseModel):
     image_url: str | None
     year: int | None
     mileage_km: int | None
+    published_at: datetime | None
     created_at: datetime

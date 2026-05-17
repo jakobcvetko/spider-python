@@ -253,8 +253,6 @@ async def scout_probe_ad_id(
             http_status=result.http_status,
         )
         if result.http_status < 0:
-            if attempt + 1 < SCOUT_HTTP_RETRIES:
-                continue
             return None
         if result.kind in ("not_found", "unknown", "redirect"):
             return outcome

@@ -12,6 +12,7 @@ import httpx
 from app.config import Settings, get_settings
 from scraper.avtonet_fetch import fetch_detail_page, resolve_fetch_mode
 from scraper.base import ScrapedItem
+from scraper.http_retries import PROBE_HTTP_RETRIES
 from scraper.page_fetch import FetchMode, emit_http_trace
 from scraper.sources.avto_net_common import (
     ProbeKind,
@@ -48,28 +49,42 @@ async def probe_ad_id(
     mode = resolve_fetch_mode(settings, fetch_mode)
     url = detail_url(ad_id)
     t0 = time.perf_counter()
-    try:
-        page = await fetch_detail_page(client, url, settings, fetch_mode=mode)
-    except httpx.HTTPError as e:
-        log.warning("avto.net probe %s failed: %s", ad_id, e)
-        elapsed_ms = round((time.perf_counter() - t0) * 1000)
-        await emit_http_trace(
-            emit,
-            source=source,
-            target_url=url,
-            status=-1,
-            elapsed_ms=elapsed_ms,
-            bytes_len=None,
-            fetch_mode=mode,
-            ad_id=ad_id,
-        )
-        return ProbeResult(
-            ad_id=ad_id,
-            http_status=-1,
-            kind="http_error",
-            detail=str(e)[:500],
-            fetch_mode=mode,
-        )
+    page = None
+    last_exc: httpx.HTTPError | None = None
+    for attempt in range(PROBE_HTTP_RETRIES):
+        try:
+            page = await fetch_detail_page(client, url, settings, fetch_mode=mode)
+            break
+        except httpx.HTTPError as e:
+            last_exc = e
+            if attempt + 1 >= PROBE_HTTP_RETRIES:
+                log.warning(
+                    "avto.net probe %s failed after %s attempts: %s",
+                    ad_id,
+                    PROBE_HTTP_RETRIES,
+                    e,
+                )
+                elapsed_ms = round((time.perf_counter() - t0) * 1000)
+                await emit_http_trace(
+                    emit,
+                    source=source,
+                    target_url=url,
+                    status=-1,
+                    elapsed_ms=elapsed_ms,
+                    bytes_len=None,
+                    fetch_mode=mode,
+                    ad_id=ad_id,
+                )
+                return ProbeResult(
+                    ad_id=ad_id,
+                    http_status=-1,
+                    kind="http_error",
+                    detail=str(e)[:500],
+                    fetch_mode=mode,
+                )
+    if page is None:
+        assert last_exc is not None
+        raise last_exc
 
     elapsed_ms = round((time.perf_counter() - t0) * 1000)
     await emit_http_trace(

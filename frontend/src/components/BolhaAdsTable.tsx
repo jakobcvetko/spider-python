@@ -12,6 +12,7 @@ import {
   type BolhaAdScrapeEntry,
 } from '../lib/admin'
 import { getErrorMessage } from '../lib/auth'
+import { discoveryLagTitle, formatDiscoveryLag } from '../lib/formatLag'
 import { Button, Card, TableFrame } from './ui'
 
 const SCRAPE_TIMELINE_WIDTH_PX = 384
@@ -347,7 +348,16 @@ function AdDataRow({
       <td className="px-2 py-1.5">
         <ScrapeLogTimeline scrapes={row.scrapes} now={now} windowMs={windowMs} />
       </td>
-      <td className="whitespace-nowrap px-2 py-1.5 text-right text-zinc-500">{row.scrapes.length}</td>
+      <td className="whitespace-nowrap px-2 py-1.5 text-right text-zinc-500">
+        {row.status === 'success' ? (
+          <DiscoveryLag
+            publishedAt={row.listing_published_at}
+            createdAt={row.listing_created_at}
+          />
+        ) : (
+          <span className="text-zinc-300">—</span>
+        )}
+      </td>
       <td className="whitespace-nowrap px-2 py-1.5 text-right">
         {row.status === 'success' && onMatch ? (
           <div className="flex flex-col items-end gap-0.5">
@@ -373,6 +383,25 @@ function AdDataRow({
         )}
       </td>
     </tr>
+  )
+}
+
+function DiscoveryLag({
+  publishedAt,
+  createdAt,
+}: {
+  publishedAt?: string | null
+  createdAt?: string | null
+}) {
+  const label = formatDiscoveryLag(publishedAt, createdAt)
+  if (!label) return <span className="text-zinc-300">—</span>
+  return (
+    <span
+      className="tabular-nums text-emerald-700"
+      title={discoveryLagTitle(publishedAt, createdAt)}
+    >
+      {label}
+    </span>
   )
 }
 
@@ -614,7 +643,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
                   <th className="px-2 py-2 font-medium" style={{ width: SCRAPE_TIMELINE_WIDTH_PX }}>
                     scrape log
                   </th>
-                  <th className="px-2 py-2 font-medium text-right">scrapes</th>
+                  <th className="px-2 py-2 font-medium text-right">lag</th>
                   <th className="px-2 py-2 font-medium text-right">matcher</th>
                 </tr>
               </thead>

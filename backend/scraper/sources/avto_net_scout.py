@@ -20,6 +20,7 @@ from scraper.sources.avto_net_common import (
     SCOUT_PROBE_WINDOW_RADIUS,
     SCOUT_REFINE_STEP,
 )
+from scraper.sources.avto_net_probe import probe_ad_id as fetch_probe
 from scraper.sources.avtonet_pipeline import (
     EmitFn,
     PipelineKind,
@@ -28,6 +29,7 @@ from scraper.sources.avtonet_pipeline import (
     is_known_probe_kind,
     max_numeric_listing_id,
     meta_begin_fetch,
+    persist_probe_result,
     probe_ad_id,
 )
 
@@ -215,18 +217,37 @@ class AvtoNetScoutSource:
             for offset in range(-radius, radius + 1)
             if center + offset > 0
         ]
-        if state.probe_count >= SCOUT_MAX_PROBES:
+        n = len(ad_ids)
+        if state.probe_count + n > SCOUT_MAX_PROBES:
             return None, True
         if state.probe_count > 0:
             await asyncio.sleep(SCOUT_PROBE_DELAY_SECONDS)
+        state.probe_count += n
 
-        async def _one(ad_id: int) -> tuple[int, PipelineKind | None]:
-            kind = await self._probe(
-                db, client, emit, state, ad_id, in_batch=True
+        settings = get_settings()
+        fetched = await asyncio.gather(
+            *[
+                fetch_probe(
+                    client,
+                    ad_id,
+                    settings=settings,
+                    emit=emit,
+                    source=self.name,
+                )
+                for ad_id in ad_ids
+            ]
+        )
+        results: list[tuple[int, PipelineKind | None]] = []
+        for result in sorted(fetched, key=lambda r: r.ad_id):
+            kind = await persist_probe_result(
+                db,
+                result,
+                source_name=self.name,
+                emit=emit,
+                last_working_ad_id=state.lo,
+                high_water=state.high_water,
             )
-            return ad_id, kind
-
-        results = await asyncio.gather(*[_one(ad_id) for ad_id in ad_ids])
+            results.append((result.ad_id, kind))
         exhausted = any(kind is None for _, kind in results)
         known_ids = [
             ad_id

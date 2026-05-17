@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.listings import listing_default_order
 from app.avtonet_ads_serialize import avtonet_ad_to_out as _avtonet_ad_to_out
 from app.bolha_ads_serialize import bolha_ad_to_out as _bolha_ad_to_out
+from app.listing_times import listing_times_by_external_ids
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_admin_user_from_cookie, require_admin
@@ -467,6 +468,30 @@ async def avtonet_progressive_state(
     )
 
 
+def _ads_with_listing_times(
+    rows: list[BolhaAd] | list[AvtonetAd],
+    *,
+    times_by_external_id: dict[str, tuple[datetime, datetime | None]],
+    to_out,
+) -> list:
+    out: list = []
+    for row in rows:
+        listing_created_at: datetime | None = None
+        listing_published_at: datetime | None = None
+        if row.status == AD_STATUS_SUCCESS:
+            times = times_by_external_id.get(str(row.ad_id))
+            if times is not None:
+                listing_created_at, listing_published_at = times
+        out.append(
+            to_out(
+                row,
+                listing_created_at=listing_created_at,
+                listing_published_at=listing_published_at,
+            )
+        )
+    return out
+
+
 @router.get("/bolha/ads", response_model=list[BolhaAdOut])
 async def bolha_ads(
     db: AsyncSession = Depends(get_db),
@@ -481,7 +506,9 @@ async def bolha_ads(
         .limit(limit)
     )
     rows = (await db.execute(stmt)).scalars().all()
-    return [_bolha_ad_to_out(r) for r in rows]
+    success_ids = [str(r.ad_id) for r in rows if r.status == AD_STATUS_SUCCESS]
+    times = await listing_times_by_external_ids(db, BOLHA_SOURCE, success_ids)
+    return _ads_with_listing_times(rows, times_by_external_id=times, to_out=_bolha_ad_to_out)
 
 
 @router.post("/bolha/ads/{ad_id}/match", response_model=BolhaAdMatchResponse)
@@ -581,7 +608,9 @@ async def avtonet_ads(
         .limit(limit)
     )
     rows = (await db.execute(stmt)).scalars().all()
-    return [_avtonet_ad_to_out(r) for r in rows]
+    success_ids = [str(r.ad_id) for r in rows if r.status == AVTONET_AD_STATUS_SUCCESS]
+    times = await listing_times_by_external_ids(db, AVTONET_SOURCE, success_ids)
+    return _ads_with_listing_times(rows, times_by_external_id=times, to_out=_avtonet_ad_to_out)
 
 
 @router.post("/avtonet/ads/{ad_id}/match", response_model=AvtonetAdMatchResponse)

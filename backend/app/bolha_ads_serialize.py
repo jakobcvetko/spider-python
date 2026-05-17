@@ -8,7 +8,12 @@ from app.models.bolha_ad import BolhaAd
 from app.schemas.admin import BolhaAdOut, BolhaAdScrapeEntryOut
 
 
-def bolha_ad_to_out(row: BolhaAd) -> BolhaAdOut:
+def bolha_ad_to_out(
+    row: BolhaAd,
+    *,
+    listing_published_at: datetime | None = None,
+    listing_created_at: datetime | None = None,
+) -> BolhaAdOut:
     origin = row.created_at
     scrapes: list[BolhaAdScrapeEntryOut] = []
     for raw in row.scrape_log or []:
@@ -41,4 +46,6 @@ def bolha_ad_to_out(row: BolhaAd) -> BolhaAdOut:
         created_at=row.created_at,
         updated_at=row.updated_at,
         scrapes=scrapes,
+        listing_published_at=listing_published_at,
+        listing_created_at=listing_created_at,
     )

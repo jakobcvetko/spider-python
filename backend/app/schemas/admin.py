@@ -62,6 +62,7 @@ class AdminListingOut(BaseModel):
     image_url: str | None
     year: int | None
     mileage_km: int | None
+    published_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -108,6 +109,8 @@ class BolhaAdOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     scrapes: list[BolhaAdScrapeEntryOut]
+    listing_published_at: datetime | None = None
+    listing_created_at: datetime | None = None
 
 
 class BolhaAdMatchResponse(BaseModel):
@@ -131,6 +134,8 @@ class AvtonetAdOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     scrapes: list[AvtonetAdScrapeEntryOut]
+    listing_published_at: datetime | None = None
+    listing_created_at: datetime | None = None
 
 
 class AvtonetAdMatchResponse(BaseModel):

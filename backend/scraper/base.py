@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from typing import Any, Protocol
 
 import httpx
@@ -28,6 +29,7 @@ class ScrapedItem:
     image_url: str | None = None
     year: int | None = None
     mileage_km: int | None = None
+    published_at: datetime | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -62,6 +64,7 @@ async def upsert_items(
             "image_url": item.image_url,
             "year": item.year,
             "mileage_km": item.mileage_km,
+            "published_at": item.published_at,
             "raw": item.raw or None,
         }
         for item in items

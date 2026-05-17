@@ -8,7 +8,12 @@ from app.models.avtonet_ad import AvtonetAd
 from app.schemas.admin import AvtonetAdOut, AvtonetAdScrapeEntryOut
 
 
-def avtonet_ad_to_out(row: AvtonetAd) -> AvtonetAdOut:
+def avtonet_ad_to_out(
+    row: AvtonetAd,
+    *,
+    listing_published_at: datetime | None = None,
+    listing_created_at: datetime | None = None,
+) -> AvtonetAdOut:
     origin = row.created_at
     scrapes: list[AvtonetAdScrapeEntryOut] = []
     for raw in row.scrape_log or []:
@@ -41,4 +46,6 @@ def avtonet_ad_to_out(row: AvtonetAd) -> AvtonetAdOut:
         created_at=row.created_at,
         updated_at=row.updated_at,
         scrapes=scrapes,
+        listing_published_at=listing_published_at,
+        listing_created_at=listing_created_at,
     )

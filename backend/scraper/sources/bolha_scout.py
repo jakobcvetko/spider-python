@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import SessionLocal
 from app.scraper_events import make_event
 from scraper.base import ScrapedItem
+from scraper.http_retries import httpx_get_with_retries
 from scraper.sources.bolha_common import (
     EmitFn,
     IAPI_HOME_URL,
@@ -21,7 +22,9 @@ from scraper.sources.bolha_common import (
     SCOUT_PROBE_TIMEOUT_SECONDS,
     SCOUT_PROBE_WINDOW_RADIUS,
     SCOUT_REFINE_STEP,
+    SCOUT_HTTP_RETRIES,
     ProbeKind,
+    fetch_probe_http,
     finalize_scout_last_working_advance,
     get_meta,
     make_probe_client,
@@ -30,6 +33,7 @@ from scraper.sources.bolha_common import (
     max_numeric_listing_id,
     meta_begin_fetch,
     meta_set_homepage_max,
+    persist_probe_fetch,
     probe_ad_id,
 )
 
@@ -82,7 +86,12 @@ class BolhaScoutSource:
 
         hp_max = 0
         try:
-            home = await probe.get(IAPI_HOME_URL, timeout=SCOUT_PROBE_TIMEOUT_SECONDS)
+            home = await httpx_get_with_retries(
+                probe,
+                IAPI_HOME_URL,
+                timeout=SCOUT_PROBE_TIMEOUT_SECONDS,
+                max_attempts=SCOUT_HTTP_RETRIES,
+            )
             if home.status_code == 200:
                 hp_max = max_ad_id_from_homepage_html(home.text)
                 await meta_set_homepage_max(db, hp_max)
@@ -224,18 +233,27 @@ class BolhaScoutSource:
             for offset in range(-radius, radius + 1)
             if center + offset > 0
         ]
-        if state.probe_count >= SCOUT_MAX_PROBES:
+        n = len(ad_ids)
+        if state.probe_count + n > SCOUT_MAX_PROBES:
             return None, True
         if state.probe_count > 0:
             await asyncio.sleep(SCOUT_PROBE_DELAY_SECONDS)
+        state.probe_count += n
 
-        async def _one(ad_id: int) -> tuple[int, ProbeKind | None]:
-            kind = await self._probe(
-                db, probe, emit, state, ad_id, in_batch=True
+        fetches = await asyncio.gather(
+            *[fetch_probe_http(probe, ad_id) for ad_id in ad_ids]
+        )
+        results: list[tuple[int, ProbeKind | None]] = []
+        for fetch in sorted(fetches, key=lambda f: f.ad_id):
+            kind = await persist_probe_fetch(
+                db,
+                fetch,
+                source_name=self.name,
+                emit=emit,
+                last_working_ad_id=state.lo,
+                high_water=state.high_water,
             )
-            return ad_id, kind
-
-        results = await asyncio.gather(*[_one(ad_id) for ad_id in ad_ids])
+            results.append((fetch.ad_id, kind))
         exhausted = any(kind is None for _, kind in results)
         known_ids = [
             ad_id

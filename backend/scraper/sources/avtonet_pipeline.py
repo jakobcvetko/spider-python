@@ -463,12 +463,15 @@ async def finalize_scout_last_working_advance(
 ) -> PipelineKind | None:
     settings = settings or get_settings()
     now = datetime.now(timezone.utc)
-    try:
-        result = await fetch_probe(
-            client, ad_id, settings=settings, emit=emit, source=source_name
+    result = await fetch_probe(
+        client, ad_id, settings=settings, emit=emit, source=source_name
+    )
+    if result.http_status < 0:
+        log.warning(
+            "avto.net scout finalize: probe %s failed: %s",
+            ad_id,
+            result.detail,
         )
-    except httpx.HTTPError as e:
-        log.warning("avto.net scout finalize: probe %s failed: %s", ad_id, e)
         await meta_set_last_working(db, ad_id)
         return None
     kind = pipeline_kind_from_probe(result)
@@ -547,6 +550,55 @@ async def emit_progress_tick(
     )
 
 
+async def persist_probe_result(
+    db: AsyncSession,
+    result: ProbeResult,
+    *,
+    source_name: str,
+    emit: EmitFn = None,
+    last_working_ad_id: int = 0,
+    high_water: int = 0,
+) -> PipelineKind | None:
+    """Persist one probe result. Returns None after hard HTTP failure."""
+    now = datetime.now(timezone.utc)
+    ad_id = result.ad_id
+    kind = pipeline_kind_from_probe(result)
+    oc = outcome_from_class(kind)
+    http_st = result.http_status
+
+    await upsert_probe(
+        db,
+        ad_id,
+        fetched_at=now,
+        http_status=http_st,
+        outcome=oc,
+        detail=result.detail,
+    )
+    await record_avtonet_ad_scrape_from_outcome(
+        db,
+        ad_id,
+        source=source_name,
+        outcome=oc,
+        fetched_at=now,
+        http_status=http_st,
+        detail=result.detail,
+        emit=emit,
+    )
+    await emit_progress_tick(
+        emit,
+        scraper_name=source_name,
+        ad_id=ad_id,
+        last_working_ad_id=last_working_ad_id,
+        high_water=high_water,
+        outcome=oc,
+        http_status=http_st,
+    )
+
+    if result.http_status < 0:
+        return None
+    return kind
+
+
 async def probe_ad_id(
     client: httpx.AsyncClient,
     db: AsyncSession,
@@ -560,7 +612,6 @@ async def probe_ad_id(
 ) -> PipelineKind | None:
     """Probe one ad ID; persist probe/scrape rows. Returns None after hard HTTP failure."""
     settings = settings or get_settings()
-    now = datetime.now(timezone.utc)
 
     for attempt in range(SCOUT_HTTP_RETRIES):
         result = await fetch_probe(
@@ -570,41 +621,16 @@ async def probe_ad_id(
             emit=emit,
             source=source_name,
         )
-        kind = pipeline_kind_from_probe(result)
-        oc = outcome_from_class(kind)
-        http_st = result.http_status
-
-        await upsert_probe(
+        kind = await persist_probe_result(
             db,
-            ad_id,
-            fetched_at=now,
-            http_status=http_st,
-            outcome=oc,
-            detail=result.detail,
-        )
-        await record_avtonet_ad_scrape_from_outcome(
-            db,
-            ad_id,
-            source=source_name,
-            outcome=oc,
-            fetched_at=now,
-            http_status=http_st,
-            detail=result.detail,
+            result,
+            source_name=source_name,
             emit=emit,
-        )
-        await emit_progress_tick(
-            emit,
-            scraper_name=source_name,
-            ad_id=ad_id,
             last_working_ad_id=last_working_ad_id,
             high_water=high_water,
-            outcome=oc,
-            http_status=http_st,
         )
 
         if result.http_status < 0:
-            if attempt + 1 < SCOUT_HTTP_RETRIES:
-                continue
             return None
 
         if kind in ("not_found", "bad_status") and attempt + 1 < SCOUT_HTTP_RETRIES:

@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -28,6 +29,8 @@ from app.models.bolha_ad import (
 )
 from app.scraper_events import make_event
 from scraper.base import ScrapedItem, get_listing_id, upsert_items
+from scraper.http_retries import PROBE_HTTP_RETRIES, httpx_get_with_retries
+from scraper.publish_dates import parse_bolha_published_at
 
 log = logging.getLogger(__name__)
 
@@ -82,7 +85,7 @@ SCOUT_PROBE_DELAY_SECONDS = 0.2
 SCOUT_PROBE_TIMEOUT_SECONDS = LOOKAHEAD_PROBE_TIMEOUT_SECONDS
 SCOUT_MAX_PROBES = 500
 SCOUT_MAX_ID_SPAN = 2_000_000
-SCOUT_HTTP_RETRIES = 3
+SCOUT_HTTP_RETRIES = PROBE_HTTP_RETRIES
 
 ProbeKind = Literal["active", "not_yet_created", "expired", "not_found", "bad_status"]
 
@@ -153,6 +156,7 @@ def parse_active_detail(html: str, ad_id: int) -> ScrapedItem:
         currency=currency,
         location=None,
         image_url=image_url,
+        published_at=parse_bolha_published_at(html),
         raw={
             "mode": "bolha-progressive",
             "ad_id": ad_id,
@@ -559,7 +563,12 @@ async def finalize_scout_last_working_advance(
     url = AD_PROBE_URL_TEMPLATE.format(ad_id=ad_id)
     now = datetime.now(timezone.utc)
     try:
-        resp = await probe.get(url, timeout=LOOKAHEAD_PROBE_TIMEOUT_SECONDS)
+        resp = await httpx_get_with_retries(
+            probe,
+            url,
+            timeout=LOOKAHEAD_PROBE_TIMEOUT_SECONDS,
+            max_attempts=SCOUT_HTTP_RETRIES,
+        )
     except httpx.HTTPError as e:
         log.warning("bolha scout finalize: probe %s failed: %s", ad_id, e)
         await meta_set_last_working(db, ad_id)
@@ -677,6 +686,100 @@ def is_known_probe_kind(kind: ProbeKind) -> bool:
     return kind in ("active", "expired")
 
 
+@dataclass(frozen=True, slots=True)
+class ProbeFetchResult:
+    ad_id: int
+    resp: httpx.Response | None = None
+    http_error: str | None = None
+
+
+async def fetch_probe_http(
+    client: httpx.AsyncClient,
+    ad_id: int,
+) -> ProbeFetchResult:
+    """HTTP-only probe fetch (safe to run in parallel; retries on transport errors)."""
+    url = AD_PROBE_URL_TEMPLATE.format(ad_id=ad_id)
+    try:
+        resp = await httpx_get_with_retries(
+            client, url, max_attempts=SCOUT_HTTP_RETRIES
+        )
+        return ProbeFetchResult(ad_id=ad_id, resp=resp)
+    except httpx.HTTPError as e:
+        return ProbeFetchResult(ad_id=ad_id, http_error=str(e))
+
+
+async def persist_probe_fetch(
+    db: AsyncSession,
+    fetch: ProbeFetchResult,
+    *,
+    source_name: str,
+    emit: EmitFn = None,
+    last_working_ad_id: int = 0,
+    high_water: int = 0,
+) -> ProbeKind | None:
+    """Persist one probe result. Returns None after unrecoverable HTTP errors."""
+    now = datetime.now(timezone.utc)
+    ad_id = fetch.ad_id
+
+    if fetch.http_error is not None:
+        detail = fetch.http_error[:500]
+        await upsert_probe(
+            db,
+            ad_id,
+            fetched_at=now,
+            http_status=-1,
+            gtm_ad_status=None,
+            outcome="http_error",
+            detail=detail,
+        )
+        await record_bolha_ad_scrape(
+            db,
+            ad_id,
+            source=source_name,
+            result=SCRAPE_RESULT_ERROR,
+            fetched_at=now,
+            http_status=-1,
+            detail=fetch.http_error,
+            emit=emit,
+        )
+        return None
+
+    assert fetch.resp is not None
+    resp = fetch.resp
+    html = resp.text
+    kind, gtm, _detail, http_st = classify_probe_response(resp, html, ad_id=ad_id)
+    oc = outcome_from_class(kind)
+    await upsert_probe(
+        db,
+        ad_id,
+        fetched_at=now,
+        http_status=http_st,
+        gtm_ad_status=gtm,
+        outcome=oc,
+        detail=None,
+    )
+    await record_bolha_ad_scrape_from_outcome(
+        db,
+        ad_id,
+        source=source_name,
+        outcome=oc,
+        fetched_at=now,
+        http_status=http_st,
+        emit=emit,
+    )
+    await emit_progress_tick(
+        emit,
+        scraper_name=source_name,
+        ad_id=ad_id,
+        last_working_ad_id=last_working_ad_id,
+        high_water=high_water,
+        outcome=oc,
+        http_status=http_st,
+        gtm_ad_status=gtm,
+    )
+    return kind
+
+
 async def probe_ad_id(
     client: httpx.AsyncClient,
     db: AsyncSession,
@@ -688,80 +791,35 @@ async def probe_ad_id(
     high_water: int = 0,
 ) -> ProbeKind | None:
     """Probe one ad ID; persist probe/scrape rows. Returns None after unrecoverable HTTP errors."""
-    url = AD_PROBE_URL_TEMPLATE.format(ad_id=ad_id)
-    now = datetime.now(timezone.utc)
-    last_exc: Exception | None = None
-
     for attempt in range(SCOUT_HTTP_RETRIES):
-        try:
-            resp = await client.get(url)
-        except httpx.HTTPError as e:
-            last_exc = e
-            if attempt + 1 < SCOUT_HTTP_RETRIES:
-                continue
+        fetch = await fetch_probe_http(client, ad_id)
+        if fetch.http_error is not None:
             log.warning(
                 "bolha probe %s failed after %s attempts: %s",
                 ad_id,
                 SCOUT_HTTP_RETRIES,
-                e,
+                fetch.http_error,
             )
-            await upsert_probe(
+            await persist_probe_fetch(
                 db,
-                ad_id,
-                fetched_at=now,
-                http_status=-1,
-                gtm_ad_status=None,
-                outcome="http_error",
-                detail=str(e)[:500],
-            )
-            await record_bolha_ad_scrape(
-                db,
-                ad_id,
-                source=source_name,
-                result=SCRAPE_RESULT_ERROR,
-                fetched_at=now,
-                http_status=-1,
-                detail=str(e),
+                fetch,
+                source_name=source_name,
                 emit=emit,
+                last_working_ad_id=last_working_ad_id,
+                high_water=high_water,
             )
             return None
 
-        html = resp.text
-        kind, gtm, _detail, http_st = classify_probe_response(resp, html, ad_id=ad_id)
-        oc = outcome_from_class(kind)
-        await upsert_probe(
+        kind = await persist_probe_fetch(
             db,
-            ad_id,
-            fetched_at=now,
-            http_status=http_st,
-            gtm_ad_status=gtm,
-            outcome=oc,
-            detail=None,
-        )
-        await record_bolha_ad_scrape_from_outcome(
-            db,
-            ad_id,
-            source=source_name,
-            outcome=oc,
-            fetched_at=now,
-            http_status=http_st,
+            fetch,
+            source_name=source_name,
             emit=emit,
-        )
-        await emit_progress_tick(
-            emit,
-            scraper_name=source_name,
-            ad_id=ad_id,
             last_working_ad_id=last_working_ad_id,
             high_water=high_water,
-            outcome=oc,
-            http_status=http_st,
-            gtm_ad_status=gtm,
         )
         if kind in ("not_found", "bad_status") and attempt + 1 < SCOUT_HTTP_RETRIES:
-            last_exc = None
             continue
         return kind
 
-    if last_exc is not None:
-        return None
     return "bad_status"

@@ -9,6 +9,8 @@ import httpx
 from selectolax.parser import HTMLParser
 
 from scraper.base import ScrapedItem
+from scraper.http_retries import PROBE_HTTP_RETRIES
+from scraper.publish_dates import parse_avtonet_published_at
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +33,7 @@ SCOUT_PROBE_DELAY_SECONDS = 0.2
 SCOUT_PROBE_TIMEOUT_SECONDS = PROBE_TIMEOUT_SECONDS
 SCOUT_MAX_PROBES = 500
 SCOUT_MAX_ID_SPAN = 2_000_000
-SCOUT_HTTP_RETRIES = 3
+SCOUT_HTTP_RETRIES = PROBE_HTTP_RETRIES
 
 ProbeKind = Literal[
     "active",
@@ -222,6 +224,7 @@ def parse_detail_page(
         title=title[:500],
         price_cents=price_cents,
         currency=currency,
+        published_at=parse_avtonet_published_at(html),
         raw={"probe": "detail"},
         year=year,
     )
