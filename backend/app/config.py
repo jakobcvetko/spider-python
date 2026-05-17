@@ -26,6 +26,7 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:3000,http://localhost:3000",
         alias="CORS_ORIGINS",
     )
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     scrape_interval_seconds: int = Field(default=60, alias="SCRAPE_INTERVAL_SECONDS")
     scraper_user_agent: str = Field(
         default="spider-bot/0.1 (+https://example.com)",

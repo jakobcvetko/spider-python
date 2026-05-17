@@ -15,6 +15,7 @@ AD_STATUS_REMOVED = "removed"
 AD_STATUS_TIMEDOUT = "timed_out"
 
 # Per-scrape result stored in scrape_log entries.
+SCRAPE_LOG_MAX_ENTRIES = 50
 SCRAPE_RESULT_SUCCESS = "success"
 SCRAPE_RESULT_EMPTY = "empty"
 SCRAPE_RESULT_REMOVED = "removed"

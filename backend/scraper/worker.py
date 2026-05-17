@@ -28,6 +28,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import get_settings
+
+_settings = get_settings()
+_log_level = getattr(logging, _settings.log_level.upper(), logging.INFO)
 from app.database import SessionLocal
 from app.scraper_events import (
     COMMANDS_CHANNEL,
@@ -39,9 +42,10 @@ from scraper.base import Source, item_to_dict, upsert_items
 from scraper.sources import ALL_SOURCES
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=_log_level,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("scraper")
 
 HEARTBEAT_INTERVAL_SECONDS = 5

@@ -41,6 +41,25 @@ from scraper.sources.bolha_common import (
 log = logging.getLogger(__name__)
 
 
+def _window_ad_ids(center: int) -> list[int]:
+    half_low = LOOKAHEAD_ADS // 2
+    return [
+        center + offset
+        for offset in range(-half_low, LOOKAHEAD_ADS - half_low)
+        if center + offset > 0
+    ]
+
+
+def _format_window_outcomes(
+    results: list[tuple[int, ProbeKind | None]],
+) -> str:
+    parts: list[str] = []
+    for ad_id, kind in results:
+        label = "err" if kind is None else kind
+        parts.append(f"{ad_id}:{label}")
+    return "[" + ", ".join(parts) + "]"
+
+
 @dataclass
 class _ScoutState:
     lo: int
@@ -102,19 +121,39 @@ class BolhaScoutSource:
         db_max = await max_numeric_listing_id(db)
         seed = max(hp_max, db_max, meta_anchor)
         high_water = seed
+        frontier_at_meta = meta_anchor >= max(db_max, hp_max)
 
         await meta_begin_fetch(db, high=high_water)
 
         state = _ScoutState(lo=seed, hi=seed + 1, high_water=high_water)
         log.info(
-            "bolha scout: seed lo=%s (homepage=%s db=%s meta=%s)",
+            "bolha scout: seed lo=%s (homepage=%s db=%s meta=%s frontier_at_meta=%s)",
             seed,
             hp_max,
             db_max,
             meta_anchor,
+            frontier_at_meta,
+        )
+        log.debug(
+            "bolha scout: start meta_anchor=%s db_max=%s hp_max=%s seed=%s "
+            "high_water=%s frontier_at_meta=%s max_probes=%s window_size=%s",
+            meta_anchor,
+            db_max,
+            hp_max,
+            seed,
+            high_water,
+            frontier_at_meta,
+            SCOUT_MAX_PROBES,
+            LOOKAHEAD_ADS,
         )
 
         kind = await self._probe(db, probe, emit, state, seed)
+        log.debug(
+            "bolha scout: seed probe ad_id=%s kind=%s probes=%s",
+            seed,
+            kind,
+            state.probe_count,
+        )
         if kind is None:
             await db.commit()
             raise RuntimeError(f"bolha scout: cannot probe seed id {seed}")
@@ -125,8 +164,13 @@ class BolhaScoutSource:
                 seed,
                 kind,
             )
+            log.debug(
+                "bolha scout: phase=binary_search_downward lo=0 hi=%s probes=%s",
+                seed,
+                state.probe_count,
+            )
             lo_known = await self._binary_search_known(
-                db, probe, emit, state, lo=0, hi=seed
+                db, probe, emit, state, lo=0, hi=seed, phase="downward"
             )
             if lo_known <= 0:
                 await db.commit()
@@ -135,19 +179,88 @@ class BolhaScoutSource:
                 )
             state.lo = lo_known
             state.hi = seed
+            log.debug(
+                "bolha scout: downward search done lo=%s hi=%s probes=%s",
+                state.lo,
+                state.hi,
+                state.probe_count,
+            )
         else:
             state.lo = seed
+            log.debug(
+                "bolha scout: seed is known (%s); lo=%s probes=%s",
+                kind,
+                state.lo,
+                state.probe_count,
+            )
 
-        if not await self._gallop_up(db, probe, emit, state):
-            await db.commit()
-            raise RuntimeError("bolha scout: gallop exceeded safety limits")
+        if (
+            frontier_at_meta
+            and seed == meta_anchor
+            and is_known_probe_kind(kind)
+        ):
+            log.info(
+                "bolha scout: at frontier meta=%s (db=%s hp=%s), "
+                "skipping gallop/refine/binary (%s probes)",
+                meta_anchor,
+                db_max,
+                hp_max,
+                state.probe_count,
+            )
+            new_anchor = meta_anchor
+        else:
+            log.info(
+                "bolha scout: phase=gallop enter lo=%s hi=%s probes=%s",
+                state.lo,
+                state.hi,
+                state.probe_count,
+            )
+            if not await self._gallop_up(db, probe, emit, state):
+                await db.commit()
+                raise RuntimeError("bolha scout: gallop exceeded safety limits")
 
-        await self._refine_up(db, probe, emit, state)
-        await self._binary_search_known(
-            db, probe, emit, state, lo=state.lo, hi=state.hi
+            log.info(
+                "bolha scout: phase=refine enter lo=%s hi=%s span=%s probes=%s",
+                state.lo,
+                state.hi,
+                state.hi - state.lo,
+                state.probe_count,
+            )
+            await self._refine_up(db, probe, emit, state)
+            log.info(
+                "bolha scout: phase=refine done lo=%s hi=%s probes=%s",
+                state.lo,
+                state.hi,
+                state.probe_count,
+            )
+
+            log.info(
+                "bolha scout: phase=binary_search_bracket enter lo=%s hi=%s span=%s probes=%s",
+                state.lo,
+                state.hi,
+                state.hi - state.lo,
+                state.probe_count,
+            )
+            await self._binary_search_known(
+                db, probe, emit, state, lo=state.lo, hi=state.hi, phase="bracket"
+            )
+            log.info(
+                "bolha scout: phase=binary_search_bracket done lo=%s hi=%s probes=%s",
+                state.lo,
+                state.hi,
+                state.probe_count,
+            )
+
+            new_anchor = state.lo
+        log.debug(
+            "bolha scout: search complete new_anchor=%s meta_anchor=%s "
+            "gap_above_meta=%s will_finalize_advance=%s probes=%s",
+            new_anchor,
+            meta_anchor,
+            new_anchor - meta_anchor,
+            new_anchor > meta_anchor,
+            state.probe_count,
         )
-
-        new_anchor = state.lo
         if new_anchor > meta_anchor:
             await finalize_scout_last_working_advance(
                 db, probe, new_anchor, source_name=self.name, emit=emit
@@ -200,10 +313,23 @@ class BolhaScoutSource:
         in_batch: bool = False,
     ) -> ProbeKind | None:
         if state.probe_count >= SCOUT_MAX_PROBES:
+            log.debug(
+                "bolha scout: probe budget exhausted at ad_id=%s in_batch=%s count=%s",
+                ad_id,
+                in_batch,
+                state.probe_count,
+            )
             return None
         state.probe_count += 1
         if not in_batch and state.probe_count > 1:
             await asyncio.sleep(SCOUT_PROBE_DELAY_SECONDS)
+        log.debug(
+            "bolha scout: single probe ad_id=%s in_batch=%s count=%s lo=%s",
+            ad_id,
+            in_batch,
+            state.probe_count,
+            state.lo,
+        )
         kind = await probe_ad_id(
             probe,
             db,
@@ -228,18 +354,33 @@ class BolhaScoutSource:
         Returns (highest_known_id, budget_exhausted). ``highest_known_id`` is None
         when no active/expired listing exists in the window.
         """
-        half_low = LOOKAHEAD_ADS // 2
-        ad_ids = [
-            center + offset
-            for offset in range(-half_low, LOOKAHEAD_ADS - half_low)
-            if center + offset > 0
-        ]
+        ad_ids = _window_ad_ids(center)
         n = len(ad_ids)
+        probes_before = state.probe_count
         if state.probe_count + n > SCOUT_MAX_PROBES:
+            log.debug(
+                "bolha scout: window skipped (budget) center=%s ids=%s..%s need=%s have=%s",
+                center,
+                ad_ids[0] if ad_ids else None,
+                ad_ids[-1] if ad_ids else None,
+                n,
+                probes_before,
+            )
             return None, True
         if state.probe_count > 0:
             await asyncio.sleep(SCOUT_PROBE_DELAY_SECONDS)
         state.probe_count += n
+
+        log.debug(
+            "bolha scout: window center=%s ids=%s..%s (%s ids) lo=%s probes %s->%s",
+            center,
+            ad_ids[0] if ad_ids else None,
+            ad_ids[-1] if ad_ids else None,
+            n,
+            state.lo,
+            probes_before,
+            state.probe_count,
+        )
 
         fetches = await asyncio.gather(
             *[fetch_probe_http(probe, ad_id) for ad_id in ad_ids]
@@ -261,8 +402,18 @@ class BolhaScoutSource:
             for ad_id, kind in results
             if kind is not None and is_known_probe_kind(kind)
         ]
+        highest = max(known_ids) if known_ids else None
+        log.info(
+            "bolha scout: window center=%s outcomes=%s highest_known=%s "
+            "exhausted=%s probes=%s",
+            center,
+            _format_window_outcomes(results),
+            highest,
+            exhausted,
+            state.probe_count,
+        )
         if known_ids:
-            return max(known_ids), exhausted
+            return highest, exhausted
         return None, exhausted
 
     async def _gallop_up(
@@ -274,7 +425,9 @@ class BolhaScoutSource:
     ) -> bool:
         step = SCOUT_GALLOP_STEP
         seed_lo = state.lo
+        gallop_iter = 0
         while True:
+            gallop_iter += 1
             if state.lo - seed_lo > SCOUT_MAX_ID_SPAN:
                 log.error(
                     "bolha scout: exceeded max id span %s above seed %s",
@@ -283,16 +436,48 @@ class BolhaScoutSource:
                 )
                 return False
             candidate = state.lo + step
+            log.debug(
+                "bolha scout: gallop iter=%s candidate=%s step=%s lo=%s probes=%s",
+                gallop_iter,
+                candidate,
+                step,
+                state.lo,
+                state.probe_count,
+            )
             highest_known, exhausted = await self._probe_window(
                 db, probe, emit, state, candidate
             )
             if exhausted:
+                log.debug(
+                    "bolha scout: gallop stopped (budget) iter=%s candidate=%s probes=%s",
+                    gallop_iter,
+                    candidate,
+                    state.probe_count,
+                )
                 return False
             if highest_known is not None:
+                prev_lo = state.lo
                 state.lo = highest_known
                 step = min(step * 2, SCOUT_MAX_ID_SPAN)
+                log.debug(
+                    "bolha scout: gallop found known id=%s lo %s->%s step=%s probes=%s",
+                    highest_known,
+                    prev_lo,
+                    state.lo,
+                    step,
+                    state.probe_count,
+                )
                 continue
             state.hi = candidate + SCOUT_PROBE_WINDOW_RADIUS
+            log.debug(
+                "bolha scout: gallop bracket found lo=%s hi=%s candidate=%s "
+                "iters=%s probes=%s",
+                state.lo,
+                state.hi,
+                candidate,
+                gallop_iter,
+                state.probe_count,
+            )
             log.info(
                 "bolha scout: gallop bracket [%s, %s] "
                 "(no known in window around %s)",
@@ -309,17 +494,47 @@ class BolhaScoutSource:
         emit: EmitFn,
         state: _ScoutState,
     ) -> None:
+        refine_iter = 0
         while state.hi - state.lo > SCOUT_REFINE_STEP:
+            refine_iter += 1
             candidate = state.lo + SCOUT_REFINE_STEP
+            log.debug(
+                "bolha scout: refine iter=%s candidate=%s lo=%s hi=%s span=%s probes=%s",
+                refine_iter,
+                candidate,
+                state.lo,
+                state.hi,
+                state.hi - state.lo,
+                state.probe_count,
+            )
             highest_known, exhausted = await self._probe_window(
                 db, probe, emit, state, candidate
             )
             if exhausted:
+                log.debug(
+                    "bolha scout: refine stopped (budget) iter=%s probes=%s",
+                    refine_iter,
+                    state.probe_count,
+                )
                 return
             if highest_known is not None:
+                prev_lo = state.lo
                 state.lo = highest_known
+                log.debug(
+                    "bolha scout: refine found known id=%s lo %s->%s probes=%s",
+                    highest_known,
+                    prev_lo,
+                    state.lo,
+                    state.probe_count,
+                )
             else:
                 state.hi = candidate + SCOUT_PROBE_WINDOW_RADIUS
+                log.debug(
+                    "bolha scout: refine narrowed hi=%s candidate=%s probes=%s",
+                    state.hi,
+                    candidate,
+                    state.probe_count,
+                )
                 return
 
     async def _binary_search_known(
@@ -331,19 +546,65 @@ class BolhaScoutSource:
         *,
         lo: int,
         hi: int,
+        phase: str = "binary",
     ) -> int:
         """Return highest known id in (lo, hi]; updates state.lo."""
+        log.debug(
+            "bolha scout: %s enter lo=%s hi=%s span=%s probes=%s",
+            phase,
+            lo,
+            hi,
+            hi - lo,
+            state.probe_count,
+        )
+        step = 0
         while hi - lo > 1:
+            step += 1
             mid = (lo + hi) // 2
+            lo_before, hi_before = lo, hi
             highest_known, exhausted = await self._probe_window(
                 db, probe, emit, state, mid
             )
             if exhausted:
+                log.debug(
+                    "bolha scout: %s stopped (budget) step=%s mid=%s lo=%s hi=%s probes=%s",
+                    phase,
+                    step,
+                    mid,
+                    lo,
+                    hi,
+                    state.probe_count,
+                )
                 break
             if highest_known is not None:
-                lo = highest_known
+                lo = max(lo, highest_known)
+                # Window found known ids but lo did not advance (already at the
+                # frontier). Without shrinking hi, mid stays fixed forever.
+                if lo == lo_before:
+                    hi = min(hi, mid - 1)
             else:
                 hi = max(lo + 1, mid - SCOUT_PROBE_WINDOW_RADIUS - 1)
+            log.debug(
+                "bolha scout: %s step=%s mid=%s lo %s->%s hi %s->%s highest=%s probes=%s",
+                phase,
+                step,
+                mid,
+                lo_before,
+                lo,
+                hi_before,
+                hi,
+                highest_known,
+                state.probe_count,
+            )
         state.lo = lo
         state.hi = hi
+        log.debug(
+            "bolha scout: %s done steps=%s result_lo=%s state.lo=%s state.hi=%s probes=%s",
+            phase,
+            step,
+            lo,
+            state.lo,
+            state.hi,
+            state.probe_count,
+        )
         return lo

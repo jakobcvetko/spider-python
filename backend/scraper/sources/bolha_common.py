@@ -21,6 +21,7 @@ from app.models.bolha_ad import (
     AD_STATUS_REMOVED,
     AD_STATUS_SUCCESS,
     AD_STATUS_TIMEDOUT,
+    SCRAPE_LOG_MAX_ENTRIES,
     SCRAPE_RESULT_EMPTY,
     SCRAPE_RESULT_ERROR,
     SCRAPE_RESULT_REMOVED,
@@ -314,7 +315,7 @@ async def record_bolha_ad_scrape(
     else:
         log_entries = list(row.scrape_log or [])
         log_entries.append(entry)
-        row.scrape_log = log_entries
+        row.scrape_log = log_entries[-SCRAPE_LOG_MAX_ENTRIES:]
         if resolved is not None:
             row.status = merge_ad_status(row.status, resolved)
     await db.flush()

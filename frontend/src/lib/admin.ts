@@ -211,12 +211,13 @@ function mergeScrapeEntries(
   for (const s of [...a, ...b]) {
     byAt.set(s.at, s);
   }
-  return [...byAt.values()].sort(
-    (x, y) => Date.parse(x.at) - Date.parse(y.at),
-  );
+  return [...byAt.values()].sort((x, y) => Date.parse(x.at) - Date.parse(y.at));
 }
 
-function mergeControlDashAdRow(prev: BolhaAdRow, fetched: BolhaAdRow): BolhaAdRow {
+function mergeControlDashAdRow(
+  prev: BolhaAdRow,
+  fetched: BolhaAdRow,
+): BolhaAdRow {
   const prevUpdated = Date.parse(prev.updated_at);
   const fetchedUpdated = Date.parse(fetched.updated_at);
   const updated_at =
@@ -249,12 +250,13 @@ export function mergeControlDashAdsRows(
     const f = byId.get(p.ad_id);
     byId.set(p.ad_id, f ? mergeControlDashAdRow(p, f) : p);
   }
-  return [...byId.values()]
-    .sort((a, b) => b.ad_id - a.ad_id)
-    .slice(0, limit);
+  return [...byId.values()].sort((a, b) => b.ad_id - a.ad_id).slice(0, limit);
 }
 
-const controlDashRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const controlDashRefreshTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
 
 function scheduleControlDashAdsRefresh(
   qc: QueryClient,
