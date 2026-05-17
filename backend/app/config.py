@@ -36,7 +36,7 @@ class Settings(BaseSettings):
         alias="AVTONET_LOOKAHEAD_START_ID",
     )
     avtonet_lookahead_batch_size: int = Field(
-        default=20,
+        default=5,
         alias="AVTONET_LOOKAHEAD_BATCH_SIZE",
     )
     avtonet_probe_delay_seconds: float = Field(

@@ -16,8 +16,8 @@ LISTING_SOURCE = "avto.net"
 DETAIL_URL_TEMPLATE = "https://www.avto.net/Ads/details.asp?id={ad_id}"
 
 DEFAULT_START_AD_ID = 22_421_224
-# Match bolha_common.LOOKAHEAD_ADS / LOOKAHEAD_TIMEOUT_SECONDS.
-LOOKAHEAD_ADS = 20
+# Avtonet lookahead band size (bolha stays at 20 in bolha_common).
+LOOKAHEAD_ADS = 5
 LOOKAHEAD_BATCH_SIZE = LOOKAHEAD_ADS  # legacy alias
 PROBE_DELAY_SECONDS = 0.0
 LOOKAHEAD_IDLE_SECONDS = 5.0

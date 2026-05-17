@@ -99,7 +99,7 @@ export function useBolhaHttpLogs(events: ScraperEvent[]): ScraperEvent[] {
 }
 
 /** Matches backend ``LOOKAHEAD_ADS`` (bolha.lookahead window size). */
-export const BOLHA_LOOKAHEAD_COUNT = 20;
+export const BOLHA_LOOKAHEAD_COUNT = 5;
 
 /** Highest ad_id rows on the live avtonet_ads registry table. */
 export const AVTONET_ADS_TOP_LIMIT = 200;
@@ -122,8 +122,8 @@ export function useAvtonetHttpLogs(events: ScraperEvent[]): ScraperEvent[] {
   }, [events]);
 }
 
-/** Matches backend ``AVTONET_LOOKAHEAD_BATCH_SIZE`` (same as bolha ``LOOKAHEAD_ADS`` = 20). */
-export const AVTONET_LOOKAHEAD_COUNT = 20;
+/** Matches backend ``AVTONET_LOOKAHEAD_BATCH_SIZE`` / ``LOOKAHEAD_ADS`` (avtonet band = 5). */
+export const AVTONET_LOOKAHEAD_COUNT = 5;
 
 export function useAdminUsers(enabled: boolean) {
   return useQuery<AdminUser[]>({
@@ -542,7 +542,10 @@ export function useAvtonetPivotFromWs(
       if (ev.kind === "avtonet_progress_tick") {
         const lw = ev.data?.last_working_ad_id;
         if (typeof lw === "number") lastWorkingId = lw;
-        if (ev.data?.outcome === "success" && typeof ev.data?.ad_id === "number") {
+        if (
+          ev.data?.outcome === "success" &&
+          typeof ev.data?.ad_id === "number"
+        ) {
           lastWorkingId = Math.max(lastWorkingId, ev.data.ad_id);
           scanAnchorId = ev.data.ad_id;
         }
@@ -638,7 +641,9 @@ export function useAvtonetScrapeState(enabled: boolean) {
   return useQuery<AvtonetScrapeState>({
     queryKey: adminKeys.avtonetState,
     queryFn: async () => {
-      const { data } = await api.get<AvtonetScrapeState>("/admin/avtonet/state");
+      const { data } = await api.get<AvtonetScrapeState>(
+        "/admin/avtonet/state",
+      );
       return data;
     },
     enabled,

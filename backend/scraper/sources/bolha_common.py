@@ -51,7 +51,7 @@ def make_probe_client(
         event_hooks=shared.event_hooks,
     )
 
-LOOKAHEAD_ADS = 20
+LOOKAHEAD_ADS = 5
 LOOKAHEAD_TIMEOUT_SECONDS = 5
 LOOKAHEAD_PROBE_TIMEOUT_SECONDS = 15.0
 # Re-scan listings / homepage occasionally so meta stays aligned with backfill or manual inserts.

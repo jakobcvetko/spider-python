@@ -61,6 +61,7 @@ async def probe_ad_id(
             elapsed_ms=elapsed_ms,
             bytes_len=None,
             fetch_mode=mode,
+            ad_id=ad_id,
         )
         return ProbeResult(
             ad_id=ad_id,
@@ -79,6 +80,7 @@ async def probe_ad_id(
         elapsed_ms=elapsed_ms,
         bytes_len=len(page.text) if page.text else None,
         fetch_mode=page.fetch_mode,
+        ad_id=ad_id,
     )
 
     kind, detail = classify_detail(
