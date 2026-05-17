@@ -22,9 +22,7 @@ class ScraperCreateIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_sources(self) -> "ScraperCreateIn":
-        if self.avtonet_enabled:
-            raise ValueError("Avto.net is not available yet")
-        if not self.bolha_enabled:
+        if not self.bolha_enabled and not self.avtonet_enabled:
             raise ValueError("Select at least one source")
         return self
 
@@ -34,8 +32,3 @@ class ScraperUpdateIn(BaseModel):
     bolha_enabled: bool | None = None
     avtonet_enabled: bool | None = None
 
-    @model_validator(mode="after")
-    def reject_avtonet(self) -> "ScraperUpdateIn":
-        if self.avtonet_enabled is True:
-            raise ValueError("Avto.net is not available yet")
-        return self

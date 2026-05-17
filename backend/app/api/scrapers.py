@@ -13,11 +13,6 @@ router = APIRouter(prefix="/scrapers", tags=["scrapers"])
 
 
 def _ensure_active_sources(scraper: Scraper) -> None:
-    if scraper.avtonet_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Avto.net is not available yet",
-        )
     if not scraper.bolha_enabled and not scraper.avtonet_enabled:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

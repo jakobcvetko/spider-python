@@ -14,7 +14,7 @@ import {
 const EMPTY_FORM: ScraperPayload = {
   name: '',
   bolha_enabled: true,
-  avtonet_enabled: false,
+  avtonet_enabled: true,
 }
 
 function scraperToForm(scraper: Scraper): ScraperPayload {
@@ -27,11 +27,15 @@ function scraperToForm(scraper: Scraper): ScraperPayload {
 
 function SourceCheckboxes({
   bolha,
+  avtonet,
   onBolhaChange,
+  onAvtonetChange,
   disabled,
 }: {
   bolha: boolean
+  avtonet: boolean
   onBolhaChange: (checked: boolean) => void
+  onAvtonetChange: (checked: boolean) => void
   disabled?: boolean
 }) {
   return (
@@ -46,15 +50,14 @@ function SourceCheckboxes({
         />
         Bolha.com
       </label>
-      <label className="flex items-center gap-2 text-sm text-zinc-400">
+      <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-800">
         <input
           type="checkbox"
-          checked={false}
-          disabled
-          className="h-4 w-4 rounded border-zinc-200 text-zinc-300"
+          checked={avtonet}
+          onChange={(e) => onAvtonetChange(e.target.checked)}
+          className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
         />
         Avto.net
-        <span className="text-xs">(coming soon)</span>
       </label>
     </fieldset>
   )
@@ -78,6 +81,7 @@ function ScraperForm({
   error: string | null
 }) {
   const [form, setForm] = useState(initial)
+  const [sourceError, setSourceError] = useState<string | null>(null)
 
   return (
     <form
@@ -85,10 +89,15 @@ function ScraperForm({
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
+        if (!form.bolha_enabled && !form.avtonet_enabled) {
+          setSourceError('Select at least one source')
+          return
+        }
+        setSourceError(null)
         onSubmit({
           name: form.name.trim(),
           bolha_enabled: form.bolha_enabled,
-          avtonet_enabled: false,
+          avtonet_enabled: form.avtonet_enabled,
         })
       }}
     >
@@ -103,10 +112,20 @@ function ScraperForm({
       />
       <SourceCheckboxes
         bolha={form.bolha_enabled}
-        onBolhaChange={(checked) => setForm((f) => ({ ...f, bolha_enabled: checked }))}
+        avtonet={form.avtonet_enabled}
+        onBolhaChange={(checked) => {
+          setSourceError(null)
+          setForm((f) => ({ ...f, bolha_enabled: checked }))
+        }}
+        onAvtonetChange={(checked) => {
+          setSourceError(null)
+          setForm((f) => ({ ...f, avtonet_enabled: checked }))
+        }}
         disabled={loading}
       />
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {(sourceError || error) && (
+        <p className="text-sm text-red-600">{sourceError ?? error}</p>
+      )}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={loading}>
           Cancel
