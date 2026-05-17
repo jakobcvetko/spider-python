@@ -47,11 +47,19 @@ log = logging.getLogger("scraper")
 HEARTBEAT_INTERVAL_SECONDS = 5
 
 BOLHA_EMIT_SOURCES = frozenset({"bolha.lookahead", "bolha.backfill", "bolha.scout"})
-AVTONET_EMIT_SOURCES = frozenset({"avto.net.lookahead", "avto.net.scout"})
+AVTONET_EMIT_SOURCES = frozenset(
+    {"avto.net.lookahead", "avto.net.backfill", "avto.net.scout"}
+)
 EMIT_SOURCES = BOLHA_EMIT_SOURCES | AVTONET_EMIT_SOURCES
 
 _NO_INTERVAL_SOURCES = frozenset(
-    {"bolha.lookahead", "bolha.scout", "avto.net.lookahead", "avto.net.scout"}
+    {
+        "bolha.lookahead",
+        "bolha.scout",
+        "avto.net.lookahead",
+        "avto.net.backfill",
+        "avto.net.scout",
+    }
 )
 
 

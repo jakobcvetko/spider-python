@@ -57,6 +57,10 @@ services:
     <<: *app
     command: ["python", "-m", "scraper.worker", "--sources", "avto.net.lookahead"]
 
+  worker-avtonet-backfill:
+    <<: *app
+    command: ["python", "-m", "scraper.worker", "--sources", "avto.net.backfill"]
+
   worker-backfill:
     <<: *app
     command: ["python", "-m", "scraper.worker", "--sources", "bolha.backfill"]

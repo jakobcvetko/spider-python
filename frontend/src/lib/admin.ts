@@ -72,6 +72,8 @@ export const adminKeys = {
   bolhaAds: ["admin", "bolha", "ads"] as const,
   avtonetAds: ["admin", "avtonet", "ads"] as const,
   avtonetState: ["admin", "avtonet", "state"] as const,
+  avtonetProgressive: ["admin", "avtonet", "progressive"] as const,
+  avtonetAdStates: ["admin", "avtonet", "ad-states"] as const,
 };
 
 /** Highest ad_id rows shown on the live bolha_ads registry table. */
@@ -684,6 +686,39 @@ export function useBolhaProgressiveState(enabled: boolean) {
     queryFn: async () => {
       const { data } = await api.get<BolhaProgressiveState>(
         "/admin/bolha/progressive-state",
+      );
+      return data;
+    },
+    enabled,
+    refetchInterval: enabled ? 500 : false,
+  });
+}
+
+export type AvtonetProgressiveState = BolhaProgressiveState;
+
+export function useAvtonetProgressiveState(enabled: boolean) {
+  return useQuery<AvtonetProgressiveState>({
+    queryKey: adminKeys.avtonetProgressive,
+    queryFn: async () => {
+      const { data } = await api.get<AvtonetProgressiveState>(
+        "/admin/avtonet/progressive-state",
+      );
+      return data;
+    },
+    enabled,
+    refetchInterval: enabled ? 500 : false,
+  });
+}
+
+export type AvtonetAdStateRow = BolhaAdStateRow;
+
+export function useAvtonetAdStates(enabled: boolean, limit = 10_000) {
+  return useQuery<AvtonetAdStateRow[]>({
+    queryKey: [...adminKeys.avtonetAdStates, limit] as const,
+    queryFn: async () => {
+      const { data } = await api.get<AvtonetAdStateRow[]>(
+        "/admin/avtonet/ad-states",
+        { params: { limit } },
       );
       return data;
     },

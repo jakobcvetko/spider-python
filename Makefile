@@ -3,7 +3,7 @@ MAKEFLAGS += --no-print-directory
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev be fe migrate migration db-up db-down db-shell db-reset stop \
-	bolha\:lookahead bolha\:backfill bolha\:scout avtonet avtonet\:lookahead avtonet\:scout matcher \
+	bolha\:lookahead bolha\:backfill bolha\:scout avtonet avtonet\:lookahead avtonet\:backfill avtonet\:scout matcher \
 	firecrawl-up firecrawl-down firecrawl-logs firecrawl-test
 
 help: ## Show this help message
@@ -14,6 +14,7 @@ help: ## Show this help message
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:scout" "Find Bolha last_working id (one-shot) and exit"
 	@printf "  \033[36m%-12s\033[0m %s\n" "avtonet" "Probe avto.net detail IDs (blocking test)"
 	@printf "  \033[36m%-12s\033[0m %s\n" "avtonet:lookahead" "Scout anchor, then run avto.net lookahead loop"
+	@printf "  \033[36m%-12s\033[0m %s\n" "avtonet:backfill" "Run avto.net backfill scraper worker only"
 	@printf "  \033[36m%-12s\033[0m %s\n" "avtonet:scout" "Find avto.net last_working id (one-shot) and exit"
 	@printf "  \033[36m%-12s\033[0m %s\n" "matcher" "Run matcher worker (listing -> scraper matches)"
 	@printf "  \033[36m%-12s\033[0m %s\n" "firecrawl-up" "Start self-hosted Firecrawl (Docker, :3002)"
@@ -70,6 +71,9 @@ avtonet: ## Probe avto.net detail IDs (blocking test; default anchor 22421224)
 
 avtonet\:lookahead: ## Scout anchor, then run avto.net lookahead loop
 	cd backend && uv run python -m scraper.worker --sources avto.net.lookahead
+
+avtonet\:backfill: ## Run avto.net backfill scraper worker only
+	cd backend && uv run python -m scraper.worker --sources avto.net.backfill
 
 avtonet\:scout: ## Find avto.net last_working id via gallop+binary search (exits when done)
 	cd backend && uv run python -m scraper.worker --sources avto.net.scout

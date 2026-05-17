@@ -19,14 +19,15 @@ from scraper.sources.avto_net_common import (
     SCOUT_PROBE_DELAY_SECONDS,
     SCOUT_REFINE_STEP,
 )
-from scraper.sources.avtonet_registry import (
-    AvtonetProbeOutcome,
+from scraper.sources.avtonet_pipeline import (
     EmitFn,
+    PipelineKind,
     get_meta,
+    is_known_probe_kind,
     max_numeric_listing_id,
-    meta_begin_batch,
+    meta_begin_fetch,
     meta_set_last_working,
-    scout_probe_ad_id,
+    probe_ad_id,
 )
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ log = logging.getLogger(__name__)
 class _ScoutState:
     lo: int
     hi: int
+    high_water: int
     probe_count: int = 0
 
 
@@ -74,10 +76,11 @@ class AvtoNetScoutSource:
 
         db_max = await max_numeric_listing_id(db)
         seed = max(db_max, meta_anchor, settings.avtonet_lookahead_start_id)
+        high_water = seed
 
-        await meta_begin_batch(db)
+        await meta_begin_fetch(db, high=high_water)
 
-        state = _ScoutState(lo=seed, hi=seed + 1)
+        state = _ScoutState(lo=seed, hi=seed + 1, high_water=high_water)
         log.info(
             "avto.net scout: seed lo=%s (db=%s meta=%s config=%s)",
             seed,
@@ -86,16 +89,16 @@ class AvtoNetScoutSource:
             settings.avtonet_lookahead_start_id,
         )
 
-        seed_outcome = await self._probe(db, client, emit, state, seed)
-        if seed_outcome is None:
+        kind = await self._probe(db, client, emit, state, seed)
+        if kind is None:
             await db.commit()
             raise RuntimeError(f"avto.net scout: cannot probe seed id {seed}")
 
-        if not seed_outcome.confirmed:
+        if not is_known_probe_kind(kind):
             log.info(
-                "avto.net scout: seed %s is empty (%s); searching downward for last known id",
+                "avto.net scout: seed %s is %s; searching downward for last known id",
                 seed,
-                seed_outcome.scrape_result,
+                kind,
             )
             lo_known = await self._binary_search_known(
                 db, client, emit, state, lo=0, hi=seed
@@ -103,8 +106,7 @@ class AvtoNetScoutSource:
             if lo_known <= 0:
                 await db.commit()
                 raise RuntimeError(
-                    f"avto.net scout: no known id below seed {seed} "
-                    f"(got {seed_outcome.scrape_result})"
+                    f"avto.net scout: no known id below seed {seed} (got {kind})"
                 )
             state.lo = lo_known
             state.hi = seed
@@ -166,19 +168,22 @@ class AvtoNetScoutSource:
         emit: EmitFn,
         state: _ScoutState,
         ad_id: int,
-    ) -> AvtonetProbeOutcome | None:
+    ) -> PipelineKind | None:
         if state.probe_count >= SCOUT_MAX_PROBES:
             return None
         state.probe_count += 1
         if state.probe_count > 1:
             await asyncio.sleep(SCOUT_PROBE_DELAY_SECONDS)
-        return await scout_probe_ad_id(
+        settings = get_settings()
+        return await probe_ad_id(
             client,
             db,
             ad_id,
             source_name=self.name,
             emit=emit,
             last_working_ad_id=state.lo,
+            high_water=state.high_water,
+            settings=settings,
         )
 
     async def _gallop_up(
@@ -199,16 +204,16 @@ class AvtoNetScoutSource:
                 )
                 return False
             candidate = state.lo + step
-            outcome = await self._probe(db, client, emit, state, candidate)
-            if outcome is None:
+            kind = await self._probe(db, client, emit, state, candidate)
+            if kind is None:
                 return False
-            if outcome.confirmed:
+            if is_known_probe_kind(kind):
                 state.lo = candidate
                 step = min(step * 2, SCOUT_MAX_ID_SPAN)
                 continue
             state.hi = candidate
             log.info(
-                "avto.net scout: gallop bracket [%s, %s] (first empty at %s)",
+                "avto.net scout: gallop bracket [%s, %s] (first unknown at %s)",
                 state.lo,
                 state.hi,
                 candidate,
@@ -224,10 +229,10 @@ class AvtoNetScoutSource:
     ) -> None:
         while state.hi - state.lo > SCOUT_REFINE_STEP:
             candidate = state.lo + SCOUT_REFINE_STEP
-            outcome = await self._probe(db, client, emit, state, candidate)
-            if outcome is None:
+            kind = await self._probe(db, client, emit, state, candidate)
+            if kind is None:
                 return
-            if outcome.confirmed:
+            if is_known_probe_kind(kind):
                 state.lo = candidate
             else:
                 state.hi = candidate
@@ -245,10 +250,10 @@ class AvtoNetScoutSource:
     ) -> int:
         while hi - lo > 1:
             mid = (lo + hi) // 2
-            outcome = await self._probe(db, client, emit, state, mid)
-            if outcome is None:
+            kind = await self._probe(db, client, emit, state, mid)
+            if kind is None:
                 break
-            if outcome.confirmed:
+            if is_known_probe_kind(kind):
                 lo = mid
             else:
                 hi = mid

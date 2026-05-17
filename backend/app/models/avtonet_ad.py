@@ -11,6 +11,7 @@ AD_STATUS_REMOVED = "removed"
 
 SCRAPE_RESULT_SUCCESS = "success"
 SCRAPE_RESULT_EMPTY = "empty"
+SCRAPE_RESULT_REMOVED = "removed"
 SCRAPE_RESULT_ERROR = "error"
 
 
