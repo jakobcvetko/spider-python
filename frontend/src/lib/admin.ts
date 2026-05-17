@@ -15,6 +15,19 @@ export type AdminUser = {
   is_admin: boolean;
   created_at: string;
   updated_at: string;
+  activity_count: number;
+  telegram_connected: boolean;
+  telegram_username: string | null;
+};
+
+export type UserActivity = {
+  id: string;
+  user_id: string | null;
+  telegram_chat_id: number | null;
+  kind: string;
+  body: string | null;
+  detail: string | null;
+  created_at: string;
 };
 
 export type ScraperEvent = {
@@ -76,6 +89,7 @@ export type AdminListingMatch = {
 
 export const adminKeys = {
   users: ["admin", "users"] as const,
+  userActivities: (userId: string) => ["admin", "users", userId, "activities"] as const,
   scraperStatus: ["admin", "scraper", "status"] as const,
   listingsRoot: ["admin", "listings"] as const,
   bolhaAds: ["admin", "bolha", "ads"] as const,
@@ -145,6 +159,52 @@ export function useAdminUsers(enabled: boolean) {
     enabled,
     refetchInterval: 30_000,
   });
+}
+
+export function useAdminUserActivities(userId: string | null, enabled: boolean) {
+  return useQuery<UserActivity[]>({
+    queryKey: adminKeys.userActivities(userId ?? ""),
+    queryFn: async () => {
+      const { data } = await api.get<UserActivity[]>(
+        `/admin/users/${userId}/activities`,
+      );
+      return data;
+    },
+    enabled: enabled && userId !== null,
+  });
+}
+
+export function formatActivityKind(kind: string): string {
+  switch (kind) {
+    case "telegram_start":
+      return "Telegram /start";
+    case "telegram_stop":
+      return "Telegram /stop";
+    case "telegram_message":
+      return "Telegram message";
+    default:
+      return kind;
+  }
+}
+
+export function formatActivityDetail(detail: string | null): string {
+  if (!detail) return "—";
+  switch (detail) {
+    case "no_token":
+      return "No link token";
+    case "linked":
+      return "Account linked";
+    case "invalid_or_expired":
+      return "Invalid or expired link";
+    case "chat_already_linked":
+      return "Telegram already on another account";
+    case "notifications_paused":
+      return "Notifications paused";
+    case "not_linked":
+      return "Chat not linked";
+    default:
+      return detail;
+  }
 }
 
 export type BolhaProgressiveRow = {

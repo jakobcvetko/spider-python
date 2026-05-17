@@ -1,8 +1,6 @@
 import { Link } from 'react-router-dom'
 
-import { TelegramConnection } from './TelegramConnection'
 import { Button, Card } from './ui'
-import { useTelegramStatus } from '../lib/telegram'
 
 function StepMarker({
   step,
@@ -37,71 +35,39 @@ function StepMarker({
   )
 }
 
-export function HomeOnboarding({
-  enabled,
+export function SetupGuide({
+  telegramConnected,
   activeScraperCount,
 }: {
-  enabled: boolean
+  telegramConnected: boolean
   activeScraperCount: number
 }) {
-  const telegram = useTelegramStatus(enabled)
-  const connected = telegram.data?.connected ?? false
-  const setupComplete = connected && activeScraperCount > 0
-
-  if (setupComplete) return null
-
-  const step1Done = connected
-  const step2Active = step1Done && activeScraperCount === 0
+  const setupComplete = telegramConnected && activeScraperCount > 0
+  const step2Active = telegramConnected && activeScraperCount === 0
 
   return (
     <Card>
       <div className="mb-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
-          Get started
+          Scrapers
         </h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Connect Telegram, then create a scraper to start receiving match alerts.
+          {setupComplete
+            ? 'You are set up. Adjust scrapers anytime from the Scrapers tab.'
+            : 'Create at least one scraper with Bolha or Avto.net enabled to start matching listings.'}
         </p>
       </div>
 
+      {setupComplete && (
+        <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          Setup complete — you will receive Telegram alerts when new listings match your
+          scrapers.
+        </p>
+      )}
+
       <ol className="space-y-4">
         <li className="flex gap-3">
-          <StepMarker step={1} done={step1Done} active={!step1Done} />
-          <div className="min-w-0 flex-1 space-y-3">
-            <div>
-              <p className="font-medium text-zinc-900">Connect Telegram</p>
-              <p className="text-sm text-zinc-500">
-                Required for push alerts when new listings match your filters.
-              </p>
-            </div>
-
-            {!step1Done && (
-              <div
-                role="alert"
-                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3"
-              >
-                <p className="text-sm font-medium text-red-900">Telegram not connected</p>
-                <p className="mt-1 text-sm text-red-800/90">
-                  Connect your account to receive notifications — you will not get alerts
-                  until this step is done.
-                </p>
-                <div className="mt-3 [&_ul]:mt-0">
-                  <TelegramConnection />
-                </div>
-              </div>
-            )}
-
-            {step1Done && (
-              <p className="text-sm text-emerald-700">
-                Connected
-                {telegram.data?.username ? ` as @${telegram.data.username}` : ''}.
-              </p>
-            )}
-          </div>
-        </li>
-
-        <li className="flex gap-3">
-          <StepMarker step={2} done={activeScraperCount > 0} active={step2Active} />
+          <StepMarker step={1} done={activeScraperCount > 0} active={step2Active} />
           <div className="min-w-0 flex-1 space-y-3">
             <div>
               <p className="font-medium text-zinc-900">Create a scraper</p>
@@ -109,6 +75,10 @@ export function HomeOnboarding({
                 Define what you are looking for on Bolha or Avto.net.
               </p>
             </div>
+
+            {!telegramConnected && (
+              <p className="text-sm text-zinc-400">Connect Telegram above first.</p>
+            )}
 
             {step2Active && (
               <div
@@ -128,14 +98,17 @@ export function HomeOnboarding({
               </div>
             )}
 
-            {!step1Done && (
-              <p className="text-sm text-zinc-400">Complete step 1 first.</p>
-            )}
-
             {activeScraperCount > 0 && (
-              <p className="text-sm text-emerald-700">
-                {activeScraperCount} active scraper{activeScraperCount === 1 ? '' : 's'}.
-              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-sm text-emerald-700">
+                  {activeScraperCount} active scraper{activeScraperCount === 1 ? '' : 's'}.
+                </p>
+                <Link to="/dash/scrapers">
+                  <Button type="button" variant="ghost" className="px-3 py-1.5">
+                    Manage scrapers
+                  </Button>
+                </Link>
+              </div>
             )}
           </div>
         </li>

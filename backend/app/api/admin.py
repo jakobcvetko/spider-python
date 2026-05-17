@@ -25,6 +25,7 @@ from app.models import (
     Scraper,
     ScraperMatch,
     User,
+    UserActivity,
 )
 from app.models.avtonet_ad import AD_STATUS_SUCCESS as AVTONET_AD_STATUS_SUCCESS
 from app.models.bolha_ad import AD_STATUS_SUCCESS
@@ -32,6 +33,7 @@ from app.schemas.admin import (
     AdminListingMatchOut,
     AdminListingOut,
     AdminUserOut,
+    UserActivityOut,
     AvtonetAdMatchResponse,
     AvtonetAdOut,
     AvtonetScrapeState,
@@ -146,8 +148,52 @@ async def admin_listing_matches(
 async def list_users(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
-) -> list[User]:
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
+) -> list[AdminUserOut]:
+    activity_count_sq = (
+        select(func.count())
+        .select_from(UserActivity)
+        .where(UserActivity.user_id == User.id)
+        .correlate(User)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(User, activity_count_sq.label("activity_count"))
+        .order_by(User.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    return [
+        AdminUserOut(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            is_admin=user.is_admin,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
+            activity_count=int(activity_count or 0),
+            telegram_connected=user.telegram_chat_id is not None,
+            telegram_username=user.telegram_username,
+        )
+        for user, activity_count in result.all()
+    ]
+
+
+@router.get("/users/{user_id}/activities", response_model=list[UserActivityOut])
+async def list_user_activities(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+    limit: int = Query(default=200, ge=1, le=500),
+) -> list[UserActivity]:
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    result = await db.execute(
+        select(UserActivity)
+        .where(UserActivity.user_id == user_id)
+        .order_by(desc(UserActivity.created_at))
+        .limit(limit)
+    )
     return list(result.scalars().all())
 
 

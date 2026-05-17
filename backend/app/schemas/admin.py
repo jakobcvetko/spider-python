@@ -14,6 +14,21 @@ class AdminUserOut(BaseModel):
     is_admin: bool
     created_at: datetime
     updated_at: datetime
+    activity_count: int = 0
+    telegram_connected: bool = False
+    telegram_username: str | None = None
+
+
+class UserActivityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    user_id: uuid.UUID | None
+    telegram_chat_id: int | None
+    kind: str
+    body: str | None
+    detail: str | None
+    created_at: datetime
 
 
 class ScraperStatus(BaseModel):

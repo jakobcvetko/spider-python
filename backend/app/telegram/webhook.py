@@ -6,6 +6,15 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
+from app.telegram.activity import (
+    TELEGRAM_MESSAGE,
+    TELEGRAM_START,
+    TELEGRAM_STOP,
+    record_telegram_activity,
+    redact_start_body,
+    user_id_for_chat,
+    user_id_for_link_token,
+)
 from app.telegram.client import get_telegram_client
 from app.telegram.link import LinkTokenFailure, consume_link_token
 
@@ -55,6 +64,15 @@ async def handle_update(db: AsyncSession, update: dict[str, Any]) -> None:
     if text.startswith("/start"):
         parts = text.split(maxsplit=1)
         if len(parts) < 2:
+            await record_telegram_activity(
+                db,
+                kind=TELEGRAM_START,
+                telegram_chat_id=chat_id,
+                user_id=await user_id_for_chat(db, chat_id),
+                body=redact_start_body(text),
+                detail="no_token",
+            )
+            await db.commit()
             await _reply(
                 chat_id,
                 "Open Spider in your browser and tap Connect Telegram to get a link.",
@@ -62,8 +80,29 @@ async def handle_update(db: AsyncSession, update: dict[str, Any]) -> None:
             return
 
         token = parts[1].strip()
+        link_user_id = await user_id_for_link_token(db, token)
         result = await consume_link_token(db, token, chat_id, username)
         if result is LinkTokenFailure.CHAT_ALREADY_LINKED:
+            detail = "chat_already_linked"
+            activity_user_id = link_user_id
+        elif result is LinkTokenFailure.INVALID_OR_EXPIRED:
+            detail = "invalid_or_expired"
+            activity_user_id = link_user_id
+        else:
+            detail = "linked"
+            activity_user_id = result.id
+
+        await record_telegram_activity(
+            db,
+            kind=TELEGRAM_START,
+            telegram_chat_id=chat_id,
+            user_id=activity_user_id,
+            body=redact_start_body(text),
+            detail=detail,
+        )
+
+        if result is LinkTokenFailure.CHAT_ALREADY_LINKED:
+            await db.commit()
             await _reply(
                 chat_id,
                 "This Telegram is already connected to another Spider account. "
@@ -71,6 +110,7 @@ async def handle_update(db: AsyncSession, update: dict[str, Any]) -> None:
             )
             return
         if result is LinkTokenFailure.INVALID_OR_EXPIRED:
+            await db.commit()
             await _reply(
                 chat_id,
                 "This link is invalid or expired. Go back to Spider and tap Connect again.",
@@ -89,7 +129,16 @@ async def handle_update(db: AsyncSession, update: dict[str, Any]) -> None:
 
         result = await db.execute(select(User).where(User.telegram_chat_id == chat_id))
         user = result.scalar_one_or_none()
+        await record_telegram_activity(
+            db,
+            kind=TELEGRAM_STOP,
+            telegram_chat_id=chat_id,
+            user_id=user.id if user is not None else None,
+            body="/stop",
+            detail="not_linked" if user is None else "notifications_paused",
+        )
         if user is None:
+            await db.commit()
             await _reply(chat_id, "This chat is not linked to Spider.")
             return
         user.telegram_notifications_enabled = False
@@ -98,3 +147,12 @@ async def handle_update(db: AsyncSession, update: dict[str, Any]) -> None:
             chat_id,
             "Notifications paused. Reconnect from Spider to enable them again.",
         )
+        return
+
+    await record_telegram_activity(
+        db,
+        kind=TELEGRAM_MESSAGE,
+        telegram_chat_id=chat_id,
+        body=text,
+    )
+    await db.commit()

@@ -1,9 +1,8 @@
 import { useMemo } from 'react'
 
-import { Button, Card, TableFrame } from '../components/ui'
+import { Button, Card } from '../components/ui'
 import {
   type ScraperEvent,
-  useAdminUsers,
   useScraperLive,
   useTriggerScraper,
 } from '../lib/admin'
@@ -54,7 +53,6 @@ function eventLabel(ev: ScraperEvent): string {
 }
 
 export default function AdminPage() {
-  const users = useAdminUsers(true)
   const live = useScraperLive(true)
   const trigger = useTriggerScraper()
 
@@ -68,10 +66,10 @@ export default function AdminPage() {
     <>
       <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
-        <p className="mt-1 text-sm text-zinc-400">Scraper status, live events, and users.</p>
+        <p className="mt-1 text-sm text-zinc-400">Scraper status and live events.</p>
       </header>
 
-      <section className="mb-4 grid gap-4 lg:grid-cols-3">
+      <section className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
             Scraper status
@@ -168,65 +166,6 @@ export default function AdminPage() {
           </div>
         </Card>
       </section>
-
-      <Card>
-        <div className="mb-3 flex items-end justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Users</h2>
-            <p className="text-sm text-zinc-400">
-              All registered accounts.
-            </p>
-          </div>
-          {users.isFetching && (
-            <span className="text-xs text-zinc-500">Refreshing…</span>
-          )}
-        </div>
-
-        {users.isLoading ? (
-          <p className="text-sm text-zinc-500">Loading users…</p>
-        ) : users.error ? (
-          <p className="text-sm text-red-600">
-            Failed to load users: {getErrorMessage(users.error)}
-          </p>
-        ) : !users.data || users.data.length === 0 ? (
-          <p className="text-sm text-zinc-500">No users yet.</p>
-        ) : (
-          <TableFrame>
-            <table className="min-w-full divide-y divide-zinc-200 text-sm">
-              <thead className="bg-zinc-100 text-xs uppercase tracking-wide text-zinc-400">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium">Email</th>
-                  <th className="px-3 py-2 text-left font-medium">Display name</th>
-                  <th className="px-3 py-2 text-left font-medium">Role</th>
-                  <th className="px-3 py-2 text-left font-medium">Joined</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {users.data.map((u) => (
-                  <tr key={u.id} className="hover:bg-zinc-50">
-                    <td className="px-3 py-2 text-zinc-900">{u.email}</td>
-                    <td className="px-3 py-2 text-zinc-700">
-                      {u.display_name || <span className="text-zinc-600">—</span>}
-                    </td>
-                    <td className="px-3 py-2">
-                      {u.is_admin ? (
-                        <span className="rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-indigo-700">
-                          admin
-                        </span>
-                      ) : (
-                        <span className="text-xs text-zinc-500">user</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-400">
-                      {new Date(u.created_at).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableFrame>
-        )}
-      </Card>
     </>
   )
 }
