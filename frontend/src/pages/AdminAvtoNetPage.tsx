@@ -24,10 +24,7 @@ export default function AdminAvtoNetPage() {
             <Stat label="Last working id" value={String(state.data.last_working_ad_id || '—')} />
             <Stat label="Batch size" value={String(state.data.lookahead_batch_size)} />
             <Stat label="Probe delay" value={`${state.data.probe_delay_seconds}s`} />
-            <Stat
-              label="Fetch"
-              value={state.data.scraperapi_enabled ? 'ScraperAPI' : 'direct httpx'}
-            />
+            <Stat label="Fetch" value={state.data.fetch_mode} />
           </dl>
         </Card>
       )}

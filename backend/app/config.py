@@ -54,6 +54,12 @@ class Settings(BaseSettings):
         default=None,
         alias="SCRAPERAPI_COUNTRY_CODE",
     )
+    avtonet_fetch_mode: str = Field(default="auto", alias="AVTONET_FETCH_MODE")
+    firecrawl_api_url: str = Field(
+        default="https://api.firecrawl.dev",
+        alias="FIRECRAWL_API_URL",
+    )
+    firecrawl_api_key: str | None = Field(default=None, alias="FIRECRAWL_API_KEY")
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
     telegram_webhook_secret: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET")
     telegram_webhook_base_url: str | None = Field(
@@ -75,6 +81,20 @@ class Settings(BaseSettings):
     @property
     def scraperapi_enabled(self) -> bool:
         return bool(self.scraperapi_api_key)
+
+    @property
+    def firecrawl_self_hosted(self) -> bool:
+        return self.firecrawl_api_url.rstrip("/") != "https://api.firecrawl.dev"
+
+    @property
+    def firecrawl_enabled(self) -> bool:
+        return bool(self.firecrawl_api_key) or self.firecrawl_self_hosted
+
+    @property
+    def resolved_avtonet_fetch_mode(self) -> str:
+        from scraper.avtonet_fetch import resolve_fetch_mode
+
+        return resolve_fetch_mode(self)
 
 
 @lru_cache

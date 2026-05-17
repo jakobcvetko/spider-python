@@ -60,6 +60,54 @@ def _is_challenge_page(html: str, headers: httpx.Headers) -> bool:
     return any(m in low for m in _CHALLENGE_MARKERS)
 
 
+def _page_title_from_html(html: str) -> str | None:
+    tree = HTMLParser(html)
+    og = tree.css_first('meta[property="og:title"]')
+    if og is not None:
+        title = (og.attributes.get("content") or "").strip()
+        if title:
+            return title
+    h1 = tree.css_first("h1")
+    if h1 is not None:
+        title = h1.text(strip=True)
+        if title:
+            return title
+    t = tree.css_first("title")
+    if t is not None:
+        title = t.text(strip=True)
+        if title:
+            return title
+    return None
+
+
+def _title_indicates_missing(title: str) -> bool:
+    low = title.strip().lower()
+    if low in ("www.avto.net", "avtonet", "avto.net"):
+        return True
+    if "www.avto.net" not in low:
+        return False
+    return not (
+        re.search(r"letnik\s*:\s*\d{4}", title, re.IGNORECASE)
+        or "prodam" in low
+        or re.search(r"\d[\d.\s]*\s*eur", title, re.IGNORECASE)
+    )
+
+
+def _title_looks_like_listing(title: str) -> bool:
+    if not title or not title.strip():
+        return False
+    if _title_indicates_missing(title):
+        return False
+    if re.search(r"letnik\s*:\s*\d{4}", title, re.IGNORECASE):
+        return True
+    low = title.lower()
+    if "prodam" in low and re.search(r"\d", title):
+        return True
+    if re.search(r"\d[\d.\s]*\s*eur", title, re.IGNORECASE):
+        return True
+    return False
+
+
 def classify_detail(
     html: str,
     status: int,
@@ -67,6 +115,7 @@ def classify_detail(
     headers: httpx.Headers,
     *,
     ad_id: int,
+    document_title: str | None = None,
 ) -> tuple[ProbeKind, str | None]:
     """Classify a detail-page probe (status + body heuristics)."""
     final_host = urlparse(url).netloc.lower()
@@ -91,6 +140,13 @@ def classify_detail(
     if "details.asp" not in url.lower() and final_host.endswith("avto.net"):
         return "redirect", f"final url {url}"
 
+    title = (document_title or "").strip() or _page_title_from_html(html)
+    if title:
+        if _title_indicates_missing(title):
+            return "not_found", f"generic page title: {title[:80]}"
+        if _title_looks_like_listing(title):
+            return "active", None
+
     if status == 200 and _looks_like_active_listing(html):
         return "active", None
 
@@ -101,20 +157,18 @@ def classify_detail(
 
 
 def classify_detail_response(resp: httpx.Response, *, ad_id: int) -> tuple[ProbeKind, str | None]:
-    return classify_detail(resp.text, resp.status_code, str(resp.url), resp.headers, ad_id=ad_id)
+    return classify_detail(
+        resp.text,
+        resp.status_code,
+        str(resp.url),
+        resp.headers,
+        ad_id=ad_id,
+    )
 
 
 def _looks_like_active_listing(html: str) -> bool:
-    low = html[:120_000].lower()
-    if "details.asp" in low and ("oglas" in low or "znamka" in low or "letnik" in low):
-        return True
-    tree = HTMLParser(html)
-    if tree.css_first("h1"):
-        return True
-    og = tree.css_first('meta[property="og:title"]')
-    if og is not None and (og.attributes.get("content") or "").strip():
-        return True
-    return False
+    title = _page_title_from_html(html)
+    return _title_looks_like_listing(title) if title else False
 
 
 def parse_detail_page(html: str, ad_id: int) -> ScrapedItem | None:

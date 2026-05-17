@@ -49,10 +49,14 @@ def ad_status_from_scrape_result(result: str) -> str:
 
 
 def merge_ad_status(current: str, new: str) -> str:
-    rank = {AD_STATUS_PENDING: 0, AD_STATUS_REMOVED: 1, AD_STATUS_SUCCESS: 2}
-    if rank.get(new, 0) > rank.get(current, 0):
-        return new
-    return current
+    # Success is sticky except when the ad is confirmed gone.
+    if new == AD_STATUS_REMOVED:
+        return AD_STATUS_REMOVED
+    if new == AD_STATUS_SUCCESS:
+        return AD_STATUS_SUCCESS
+    if current == AD_STATUS_SUCCESS:
+        return AD_STATUS_SUCCESS
+    return new
 
 
 async def get_meta(db: AsyncSession) -> AvtonetScrapeMeta:

@@ -17,20 +17,14 @@ import httpx
 from app.config import Settings, get_settings
 from app.database import SessionLocal
 from app.matcher_jobs import enqueue_matcher_job
+from scraper.avtonet_fetch import fetch_detail_page, fetch_timeout_seconds, resolve_fetch_mode
 from scraper.base import ScrapedItem, get_listing_id, upsert_items
-from scraper.scraperapi import (
-    SCRAPERAPI_TIMEOUT_SECONDS,
-    emit_http_trace,
-    fetch_via_scraperapi,
-    page_from_httpx,
-)
+from scraper.page_fetch import FetchMode, emit_http_trace
 from scraper.sources.avto_net_common import (
-    DEFAULT_START_AD_ID,
     LISTING_SOURCE,
     LOOKAHEAD_BATCH_SIZE,
     LOOKAHEAD_IDLE_SECONDS,
     PROBE_DELAY_SECONDS,
-    PROBE_TIMEOUT_SECONDS,
     ProbeKind,
     classify_detail,
     detail_url,
@@ -58,27 +52,7 @@ class ProbeResult:
     kind: ProbeKind
     detail: str | None
     item: ScrapedItem | None = None
-    via_scraperapi: bool = False
-
-
-async def _fetch_detail_page(
-    client: httpx.AsyncClient,
-    url: str,
-    settings: Settings,
-    *,
-    use_scraperapi: bool,
-):
-    if use_scraperapi and settings.scraperapi_api_key:
-        return await fetch_via_scraperapi(
-            None,
-            url,
-            api_key=settings.scraperapi_api_key,
-            premium=settings.scraperapi_premium,
-            render=settings.scraperapi_render,
-            country_code=settings.scraperapi_country_code,
-        )
-    resp = await client.get(url, timeout=PROBE_TIMEOUT_SECONDS)
-    return page_from_httpx(resp)
+    fetch_mode: FetchMode = "direct"
 
 
 async def probe_ad_id(
@@ -86,19 +60,16 @@ async def probe_ad_id(
     ad_id: int,
     *,
     settings: Settings | None = None,
-    use_scraperapi: bool | None = None,
+    fetch_mode: FetchMode | None = None,
     emit: EmitFn = None,
     source: str = SOURCE_NAME,
 ) -> ProbeResult:
     settings = settings or get_settings()
-    if use_scraperapi is None:
-        use_scraperapi = settings.scraperapi_enabled
+    mode = resolve_fetch_mode(settings, fetch_mode)
     url = detail_url(ad_id)
     t0 = time.perf_counter()
     try:
-        page = await _fetch_detail_page(
-            client, url, settings, use_scraperapi=use_scraperapi
-        )
+        page = await fetch_detail_page(client, url, settings, fetch_mode=mode)
     except httpx.HTTPError as e:
         log.warning("avto.net lookahead: probe %s failed: %s", ad_id, e)
         elapsed_ms = round((time.perf_counter() - t0) * 1000)
@@ -109,13 +80,14 @@ async def probe_ad_id(
             status=-1,
             elapsed_ms=elapsed_ms,
             bytes_len=None,
-            via_scraperapi=bool(use_scraperapi),
+            fetch_mode=mode,
         )
         return ProbeResult(
             ad_id=ad_id,
             http_status=-1,
             kind="http_error",
             detail=str(e)[:500],
+            fetch_mode=mode,
         )
 
     elapsed_ms = round((time.perf_counter() - t0) * 1000)
@@ -126,7 +98,7 @@ async def probe_ad_id(
         status=page.status_code,
         elapsed_ms=elapsed_ms,
         bytes_len=len(page.text) if page.text else None,
-        via_scraperapi=page.via_scraperapi,
+        fetch_mode=page.fetch_mode,
     )
 
     kind, detail = classify_detail(
@@ -135,9 +107,10 @@ async def probe_ad_id(
         page.url,
         page.headers,
         ad_id=ad_id,
+        document_title=page.document_title,
     )
-    if page.via_scraperapi and kind in ("cloudflare", "blocked"):
-        detail = (detail or "") + " (via ScraperAPI)"
+    if page.via_proxy and kind in ("cloudflare", "blocked"):
+        detail = (detail or "") + f" (via {page.fetch_mode})"
     item: ScrapedItem | None = None
     if kind == "active":
         item = parse_detail_page(page.text, ad_id)
@@ -148,7 +121,7 @@ async def probe_ad_id(
         kind=kind,
         detail=detail,
         item=item,
-        via_scraperapi=page.via_scraperapi,
+        fetch_mode=page.fetch_mode,
     )
 
 
@@ -175,7 +148,7 @@ async def run_lookahead_batch(
     delay_seconds: float = PROBE_DELAY_SECONDS,
     emit: EmitFn = None,
     settings: Settings | None = None,
-    use_scraperapi: bool | None = None,
+    fetch_mode: FetchMode | None = None,
     persist: bool = True,
 ) -> tuple[int, list[ProbeResult]]:
     """Probe anchor+1 … anchor+batch_size. Returns (new_anchor, results)."""
@@ -194,7 +167,7 @@ async def run_lookahead_batch(
                 client,
                 ad_id,
                 settings=settings,
-                use_scraperapi=use_scraperapi,
+                fetch_mode=fetch_mode,
                 emit=emit,
             )
             results.append(result)
@@ -265,7 +238,7 @@ async def run_lookahead_loop(
     idle_seconds: float = LOOKAHEAD_IDLE_SECONDS,
     emit: EmitFn = None,
     settings: Settings | None = None,
-    use_scraperapi: bool | None = None,
+    fetch_mode: FetchMode | None = None,
 ) -> NoReturn:
     settings = settings or get_settings()
     anchor = start_anchor
@@ -288,10 +261,11 @@ async def run_lookahead_loop(
                 anchor = settings.avtonet_lookahead_start_id
 
         log.info(
-            "avto.net lookahead: batch anchor=%s probing +1..+%s (delay=%ss)",
+            "avto.net lookahead: batch anchor=%s probing +1..+%s (delay=%ss) fetch=%s",
             anchor,
             batch_size,
             delay_seconds,
+            resolve_fetch_mode(settings, fetch_mode),
         )
         anchor, results = await run_lookahead_batch(
             client,
@@ -300,7 +274,7 @@ async def run_lookahead_loop(
             delay_seconds=delay_seconds,
             emit=emit,
             settings=settings,
-            use_scraperapi=use_scraperapi,
+            fetch_mode=fetch_mode,
             persist=True,
         )
         kinds = [r.kind for r in results]
@@ -308,7 +282,6 @@ async def run_lookahead_loop(
             log.warning(
                 "avto.net lookahead: entire batch blocked/challenged"
             )
-        # Same as bolha: only pause when the batch did not land on an active ad.
         batch_resolved = any(r.kind == "active" for r in results)
         if not batch_resolved:
             await asyncio.sleep(idle_seconds)
@@ -343,7 +316,16 @@ async def _run_cli(argv: list[str]) -> int:
     parser.add_argument("--count", type=int, default=5)
     parser.add_argument("--delay", type=float, default=None)
     parser.add_argument("--loop", action="store_true")
-    parser.add_argument("--no-scraperapi", action="store_true")
+    parser.add_argument(
+        "--fetch-mode",
+        choices=("auto", "direct", "scraperapi", "firecrawl"),
+        default=None,
+    )
+    parser.add_argument(
+        "--no-scraperapi",
+        action="store_true",
+        help="Deprecated: same as --fetch-mode direct",
+    )
     parser.add_argument(
         "--no-persist",
         action="store_true",
@@ -364,21 +346,26 @@ async def _run_cli(argv: list[str]) -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    use_scraperapi = settings.scraperapi_enabled and not args.no_scraperapi
-    timeout = SCRAPERAPI_TIMEOUT_SECONDS if use_scraperapi else PROBE_TIMEOUT_SECONDS
+    if args.no_scraperapi:
+        cli_fetch_mode: FetchMode | None = "direct"
+    elif args.fetch_mode is not None:
+        cli_fetch_mode = args.fetch_mode  # type: ignore[assignment]
+    else:
+        cli_fetch_mode = None
+    mode = resolve_fetch_mode(settings, cli_fetch_mode)
+    timeout = fetch_timeout_seconds(mode)
 
     async with httpx.AsyncClient(
         headers=headers,
         follow_redirects=True,
         timeout=httpx.Timeout(timeout),
     ) as client:
-        fetch_mode = "scraperapi" if use_scraperapi else "direct"
         log.info(
             "avto.net lookahead test: anchor=%s count=%s delay=%ss fetch=%s persist=%s",
             anchor,
             args.count,
             delay,
-            fetch_mode,
+            mode,
             not args.no_persist,
         )
         if args.loop:
@@ -388,7 +375,7 @@ async def _run_cli(argv: list[str]) -> int:
                 batch_size=args.count,
                 delay_seconds=delay,
                 settings=settings,
-                use_scraperapi=use_scraperapi,
+                fetch_mode=cli_fetch_mode,
             )
             return 0
 
@@ -398,7 +385,7 @@ async def _run_cli(argv: list[str]) -> int:
             batch_size=args.count,
             delay_seconds=delay,
             settings=settings,
-            use_scraperapi=use_scraperapi,
+            fetch_mode=cli_fetch_mode,
             persist=not args.no_persist,
         )
         blocked = sum(1 for r in results if r.kind in ("cloudflare", "blocked"))

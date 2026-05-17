@@ -391,7 +391,8 @@ async def avtonet_scrape_state(
         last_batch_started_at=meta.last_batch_started_at if meta else None,
         lookahead_batch_size=cfg.avtonet_lookahead_batch_size,
         probe_delay_seconds=cfg.avtonet_probe_delay_seconds,
-        scraperapi_enabled=cfg.scraperapi_enabled,
+        fetch_mode=cfg.resolved_avtonet_fetch_mode,
+        scraperapi_enabled=cfg.resolved_avtonet_fetch_mode == "scraperapi",
     )
 
 

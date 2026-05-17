@@ -4,77 +4,16 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
-from typing import Any
 
 import httpx
+
+from scraper.page_fetch import PageFetch
 
 log = logging.getLogger(__name__)
 
 SCRAPERAPI_ENDPOINT = "https://api.scraperapi.com/"
 # ScraperAPI retries up to ~70s before returning 500.
 SCRAPERAPI_TIMEOUT_SECONDS = 75.0
-
-EmitFn = Any  # async callable accepting make_event dict; avoids circular imports
-
-
-@dataclass(frozen=True)
-class PageFetch:
-    """Normalized page body + status for classification (direct or via ScraperAPI)."""
-
-    text: str
-    status_code: int
-    url: str
-    headers: httpx.Headers
-    via_scraperapi: bool = False
-
-
-async def emit_http_trace(
-    emit: EmitFn | None,
-    *,
-    source: str,
-    target_url: str,
-    status: int,
-    elapsed_ms: int | None,
-    bytes_len: int | None,
-    via_scraperapi: bool = False,
-) -> None:
-    if emit is None:
-        return
-    from app.scraper_events import make_event
-
-    req_url = SCRAPERAPI_ENDPOINT if via_scraperapi else target_url
-    await emit(
-        make_event(
-            "http_request",
-            source=source,
-            message=f"GET {req_url}",
-            data={"method": "GET", "url": req_url},
-        )
-    )
-    await emit(
-        make_event(
-            "http_response",
-            source=source,
-            message=f"{status} GET {req_url}",
-            data={
-                "status": status,
-                "method": "GET",
-                "url": req_url,
-                "elapsed_ms": elapsed_ms,
-                "bytes": bytes_len,
-            },
-        )
-    )
-
-
-def page_from_httpx(resp: httpx.Response) -> PageFetch:
-    return PageFetch(
-        text=resp.text,
-        status_code=resp.status_code,
-        url=str(resp.url),
-        headers=resp.headers,
-    )
 
 
 async def fetch_via_scraperapi(
@@ -129,7 +68,7 @@ async def fetch_via_scraperapi(
             status_code=resp.status_code,
             url=target_url,
             headers=resp.headers,
-            via_scraperapi=True,
+            fetch_mode="scraperapi",
         )
 
     # 200 = target body; 404 = target page missing (per ScraperAPI docs).
@@ -138,5 +77,5 @@ async def fetch_via_scraperapi(
         status_code=resp.status_code,
         url=target_url,
         headers=resp.headers,
-        via_scraperapi=True,
+        fetch_mode="scraperapi",
     )

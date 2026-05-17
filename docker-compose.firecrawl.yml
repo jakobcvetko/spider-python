@@ -1,0 +1,86 @@
+# Self-hosted Firecrawl for local avto.net scraping (Playwright + API on :3002).
+# Start: make firecrawl-up   Stop: make firecrawl-down
+# Docs: https://docs.firecrawl.dev/contributing/self-host
+
+name: spider-firecrawl
+
+x-firecrawl-env: &firecrawl-env
+  REDIS_URL: redis://firecrawl-redis:6379
+  REDIS_RATE_LIMIT_URL: redis://firecrawl-redis:6379
+  PLAYWRIGHT_MICROSERVICE_URL: http://firecrawl-playwright:3000/scrape
+  NUQ_RABBITMQ_URL: amqp://firecrawl-rabbitmq:5672
+  POSTGRES_HOST: firecrawl-postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  POSTGRES_DB: postgres
+  NUQ_DATABASE_URL: postgresql://postgres:postgres@firecrawl-postgres:5432/postgres
+  USE_DB_AUTHENTICATION: "false"
+  ENV: local
+  HOST: "0.0.0.0"
+  INTERNAL_PORT: "3002"
+  BULL_AUTH_KEY: spider-local
+  CRAWL_CONCURRENT_REQUESTS: "5"
+  MAX_CONCURRENT_JOBS: "3"
+  BROWSER_POOL_SIZE: "3"
+
+services:
+  firecrawl-redis:
+    image: redis:alpine
+    restart: unless-stopped
+    command: redis-server --bind 0.0.0.0
+    networks: [firecrawl]
+
+  firecrawl-rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    networks: [firecrawl]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  firecrawl-postgres:
+    image: ghcr.io/firecrawl/nuq-postgres:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    networks: [firecrawl]
+
+  firecrawl-playwright:
+    image: ghcr.io/firecrawl/playwright-service:latest
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      MAX_CONCURRENT_PAGES: "5"
+    networks: [firecrawl]
+    mem_limit: 4g
+
+  firecrawl-api:
+    image: ghcr.io/firecrawl/firecrawl:latest
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      <<: *firecrawl-env
+      PORT: "3002"
+    depends_on:
+      firecrawl-redis:
+        condition: service_started
+      firecrawl-rabbitmq:
+        condition: service_healthy
+      firecrawl-postgres:
+        condition: service_started
+      firecrawl-playwright:
+        condition: service_started
+    command: ["node", "dist/src/harness.js", "--start-docker"]
+    networks: [firecrawl]
+    mem_limit: 8g
+
+networks:
+  firecrawl:
+    driver: bridge

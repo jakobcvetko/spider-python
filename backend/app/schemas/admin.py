@@ -145,6 +145,7 @@ class AvtonetScrapeState(BaseModel):
     last_batch_started_at: datetime | None
     lookahead_batch_size: int
     probe_delay_seconds: float
+    fetch_mode: str
     scraperapi_enabled: bool
 
 

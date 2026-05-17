@@ -3,7 +3,8 @@ MAKEFLAGS += --no-print-directory
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev be fe migrate migration db-up db-down db-shell db-reset stop \
-	bolha\:lookahead bolha\:backfill bolha\:scout avtonet avtonet\:lookahead avtonet\:scout matcher
+	bolha\:lookahead bolha\:backfill bolha\:scout avtonet avtonet\:lookahead avtonet\:scout matcher \
+	firecrawl-up firecrawl-down firecrawl-logs firecrawl-test
 
 help: ## Show this help message
 	@printf "\n\033[1mSpider — dev commands\033[0m\n\n"
@@ -15,6 +16,9 @@ help: ## Show this help message
 	@printf "  \033[36m%-12s\033[0m %s\n" "avtonet:lookahead" "Scout anchor, then run avto.net lookahead loop"
 	@printf "  \033[36m%-12s\033[0m %s\n" "avtonet:scout" "Find avto.net last_working id (one-shot) and exit"
 	@printf "  \033[36m%-12s\033[0m %s\n" "matcher" "Run matcher worker (listing -> scraper matches)"
+	@printf "  \033[36m%-12s\033[0m %s\n" "firecrawl-up" "Start self-hosted Firecrawl (Docker, :3002)"
+	@printf "  \033[36m%-12s\033[0m %s\n" "firecrawl-down" "Stop self-hosted Firecrawl"
+	@printf "  \033[36m%-12s\033[0m %s\n" "firecrawl-test" "Probe 2 avto.net ads via local Firecrawl"
 	@printf "\nExamples:\n  make install        # one-time setup\n  make dev            # run everything\n  make bolha:lookahead\n  make migration name=\"add foo column\"\n\n"
 
 install: ## Install all dependencies (backend + frontend)
@@ -72,6 +76,29 @@ avtonet\:scout: ## Find avto.net last_working id via gallop+binary search (exits
 
 matcher: ## Run matcher worker (processes listing match jobs via NOTIFY)
 	cd backend && uv run python -m matcher.worker
+
+firecrawl-up: ## Start self-hosted Firecrawl (API on http://127.0.0.1:3002)
+	@echo "==> Pulling Firecrawl images (first run may take several minutes)..."
+	docker compose -f docker-compose.firecrawl.yml pull
+	docker compose -f docker-compose.firecrawl.yml up -d
+	@echo "==> Waiting for API on :3002 (can take 1–3 min on first start)..."
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do \
+		curl -sf -o /dev/null -X POST http://127.0.0.1:3002/v2/scrape \
+			-H 'Content-Type: application/json' \
+			-d '{"url":"https://example.com","formats":["html"]}' && { \
+			echo "==> Firecrawl ready at http://127.0.0.1:3002"; exit 0; }; \
+		echo "  still starting ($$i/30)..."; sleep 10; \
+	done; \
+	echo "ERROR: Firecrawl API did not become ready — run: make firecrawl-logs" >&2; exit 1
+
+firecrawl-down: ## Stop self-hosted Firecrawl
+	docker compose -f docker-compose.firecrawl.yml down
+
+firecrawl-logs: ## Follow self-hosted Firecrawl API logs
+	docker compose -f docker-compose.firecrawl.yml logs -f firecrawl-api
+
+firecrawl-test: ## Probe 2 avto.net ads (needs firecrawl-up + FIRECRAWL_API_URL in .env)
+	cd backend && uv run python -m scraper.sources.avto_net_lookahead --start-id 22421224 --count 2 --no-persist
 
 dev: db-up migrate ## Run db + backend + frontend (scrapers: make bolha:lookahead / bolha:backfill)
 	@exec bash scripts/dev.sh

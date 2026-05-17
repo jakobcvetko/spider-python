@@ -201,6 +201,7 @@ export type AvtonetScrapeState = {
   last_batch_started_at: string | null;
   lookahead_batch_size: number;
   probe_delay_seconds: number;
+  fetch_mode: string;
   scraperapi_enabled: boolean;
 };
 
