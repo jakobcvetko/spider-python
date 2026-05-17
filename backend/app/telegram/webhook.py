@@ -15,6 +15,11 @@ from app.telegram.activity import (
     user_id_for_chat,
     user_id_for_link_token,
 )
+from app.telegram.admin_notify import (
+    notify_user_linked_telegram,
+    notify_user_stopped_telegram,
+    notify_user_telegram_message,
+)
 from app.telegram.client import get_telegram_client
 from app.telegram.link import LinkTokenFailure, consume_link_token
 
@@ -118,6 +123,7 @@ async def handle_update(db: AsyncSession, update: dict[str, Any]) -> None:
             return
 
         await db.commit()
+        await notify_user_linked_telegram(db, result)
         await _reply(
             chat_id,
             "<b>Connected to Spider</b>\nYou will receive alerts when new listings match your scrapers.",
@@ -143,16 +149,26 @@ async def handle_update(db: AsyncSession, update: dict[str, Any]) -> None:
             return
         user.telegram_notifications_enabled = False
         await db.commit()
+        await notify_user_stopped_telegram(db, user)
         await _reply(
             chat_id,
             "Notifications paused. Reconnect from Spider to enable them again.",
         )
         return
 
+    message_user_id = await user_id_for_chat(db, chat_id)
+    message_user = await db.get(User, message_user_id) if message_user_id else None
     await record_telegram_activity(
         db,
         kind=TELEGRAM_MESSAGE,
         telegram_chat_id=chat_id,
+        user_id=message_user_id,
         body=text,
     )
     await db.commit()
+    await notify_user_telegram_message(
+        db,
+        user=message_user,
+        chat_id=chat_id,
+        body=text,
+    )

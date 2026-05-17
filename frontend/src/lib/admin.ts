@@ -162,6 +162,48 @@ export function useAdminUsers(enabled: boolean) {
   });
 }
 
+export type AdminUserUpdatePayload = {
+  is_admin: boolean;
+};
+
+export function useUpdateAdminUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      userId,
+      payload,
+    }: {
+      userId: string;
+      payload: AdminUserUpdatePayload;
+    }) => {
+      const { data } = await api.patch<AdminUser>(
+        `/admin/users/${userId}`,
+        payload,
+      );
+      return data;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AdminUser[]>(adminKeys.users, (prev) => {
+        if (!prev) return prev;
+        return prev.map((u) => (u.id === updated.id ? updated : u));
+      });
+    },
+  });
+}
+
+export function filterAdminUsers(
+  users: AdminUser[],
+  query: string,
+): AdminUser[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return users;
+  return users.filter((u) => {
+    const email = u.email.toLowerCase();
+    const name = (u.display_name ?? "").toLowerCase();
+    return email.includes(q) || name.includes(q);
+  });
+}
+
 export function useAdminUserActivities(
   userId: string | null,
   enabled: boolean,

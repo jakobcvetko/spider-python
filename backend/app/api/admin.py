@@ -33,6 +33,7 @@ from app.schemas.admin import (
     AdminListingMatchOut,
     AdminListingOut,
     AdminUserOut,
+    AdminUserUpdateIn,
     UserActivityOut,
     AvtonetAdMatchResponse,
     AvtonetAdOut,
@@ -144,6 +145,29 @@ async def admin_listing_matches(
     ]
 
 
+def _admin_user_out(user: User, activity_count: int) -> AdminUserOut:
+    return AdminUserOut(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        is_admin=user.is_admin,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+        activity_count=activity_count,
+        telegram_connected=user.telegram_chat_id is not None,
+        telegram_username=user.telegram_username,
+    )
+
+
+async def _user_activity_count(db: AsyncSession, user_id: uuid.UUID) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(UserActivity)
+        .where(UserActivity.user_id == user_id)
+    )
+    return int(result.scalar_one())
+
+
 @router.get("/users", response_model=list[AdminUserOut])
 async def list_users(
     db: AsyncSession = Depends(get_db),
@@ -162,19 +186,43 @@ async def list_users(
     )
     result = await db.execute(stmt)
     return [
-        AdminUserOut(
-            id=user.id,
-            email=user.email,
-            display_name=user.display_name,
-            is_admin=user.is_admin,
-            created_at=user.created_at,
-            updated_at=user.updated_at,
-            activity_count=int(activity_count or 0),
-            telegram_connected=user.telegram_chat_id is not None,
-            telegram_username=user.telegram_username,
-        )
+        _admin_user_out(user, int(activity_count or 0))
         for user, activity_count in result.all()
     ]
+
+
+@router.patch("/users/{user_id}", response_model=AdminUserOut)
+async def update_user(
+    user_id: uuid.UUID,
+    body: AdminUserUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> AdminUserOut:
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if body.is_admin != user.is_admin:
+        if not body.is_admin and user.id == admin.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot remove your own admin role",
+            )
+        if not body.is_admin:
+            admin_count = await db.scalar(
+                select(func.count()).select_from(User).where(User.is_admin.is_(True))
+            )
+            if admin_count is not None and admin_count <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot remove the last admin",
+                )
+        user.is_admin = body.is_admin
+        await db.commit()
+        await db.refresh(user)
+
+    activity_count = await _user_activity_count(db, user.id)
+    return _admin_user_out(user, activity_count)
 
 
 @router.get("/users/{user_id}/activities", response_model=list[UserActivityOut])

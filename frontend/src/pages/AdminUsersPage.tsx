@@ -1,23 +1,107 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { Button, Card, Modal, TableFrame } from '../components/ui'
+import { Button, Card, Input, Modal, TableFrame } from '../components/ui'
 import {
+  filterAdminUsers,
   formatActivityDetail,
   formatActivityKind,
   type AdminUser,
   useAdminUserActivities,
   useAdminUsers,
+  useUpdateAdminUser,
 } from '../lib/admin'
-import { getErrorMessage } from '../lib/auth'
+import { getErrorMessage, useMe } from '../lib/auth'
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
+function UserEditForm({
+  user,
+  currentUserId,
+  onSaved,
+  onCancel,
+}: {
+  user: AdminUser
+  currentUserId: string | undefined
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const update = useUpdateAdminUser()
+  const [isAdmin, setIsAdmin] = useState(user.is_admin)
+  const isSelf = user.id === currentUserId
+  const demoteBlocked = isSelf && user.is_admin
+
+  const error =
+    update.error !== null && update.error !== undefined
+      ? getErrorMessage(update.error)
+      : null
+
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (isAdmin === user.is_admin) {
+          onSaved()
+          return
+        }
+        update.mutate(
+          { userId: user.id, payload: { is_admin: isAdmin } },
+          { onSuccess: onSaved },
+        )
+      }}
+    >
+      <p className="text-sm text-zinc-600">
+        <span className="font-medium text-zinc-900">{user.email}</span>
+        {user.display_name ? (
+          <span className="text-zinc-500"> · {user.display_name}</span>
+        ) : null}
+      </p>
+
+      <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-800">
+        <input
+          type="checkbox"
+          checked={isAdmin}
+          disabled={demoteBlocked || update.isPending}
+          onChange={(e) => setIsAdmin(e.target.checked)}
+          className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed"
+        />
+        Administrator
+      </label>
+
+      {demoteBlocked && (
+        <p className="text-xs text-zinc-500">
+          You cannot remove your own admin role.
+        </p>
+      )}
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={update.isPending}>
+          Cancel
+        </Button>
+        <Button type="submit" loading={update.isPending}>
+          Save
+        </Button>
+      </div>
+    </form>
+  )
+}
+
 export default function AdminUsersPage() {
+  const me = useMe()
   const users = useAdminUsers(true)
+  const [search, setSearch] = useState('')
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null)
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null)
   const activities = useAdminUserActivities(selectedUser?.id ?? null, selectedUser !== null)
+
+  const filteredUsers = useMemo(
+    () => filterAdminUsers(users.data ?? [], search),
+    [users.data, search],
+  )
 
   return (
     <>
@@ -29,16 +113,27 @@ export default function AdminUsersPage() {
       </header>
 
       <Card>
-        <div className="mb-3 flex items-end justify-between">
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold">All users</h2>
             <p className="text-sm text-zinc-400">
-              Click a row to view activity history.
+              Search by email or display name. Click a row for activity.
             </p>
           </div>
           {users.isFetching && (
             <span className="text-xs text-zinc-500">Refreshing…</span>
           )}
+        </div>
+
+        <div className="mb-4 max-w-md">
+          <Input
+            label="Search"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Email or display name…"
+            autoComplete="off"
+          />
         </div>
 
         {users.isLoading ? (
@@ -49,6 +144,8 @@ export default function AdminUsersPage() {
           </p>
         ) : !users.data || users.data.length === 0 ? (
           <p className="text-sm text-zinc-500">No users yet.</p>
+        ) : filteredUsers.length === 0 ? (
+          <p className="text-sm text-zinc-500">No users match your search.</p>
         ) : (
           <TableFrame>
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
@@ -64,7 +161,7 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {users.data.map((u) => (
+                {filteredUsers.map((u) => (
                   <tr
                     key={u.id}
                     className="cursor-pointer hover:bg-zinc-50"
@@ -101,17 +198,30 @@ export default function AdminUsersPage() {
                       {formatDateTime(u.created_at)}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="px-2 py-1 text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSelectedUser(u)
-                        }}
-                      >
-                        View
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="px-2 py-1 text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setEditingUser(u)
+                          }}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="px-2 py-1 text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedUser(u)
+                          }}
+                        >
+                          View
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -120,6 +230,22 @@ export default function AdminUsersPage() {
           </TableFrame>
         )}
       </Card>
+
+      <Modal
+        open={editingUser !== null}
+        onClose={() => setEditingUser(null)}
+        title={editingUser ? `Edit · ${editingUser.email}` : 'Edit user'}
+      >
+        {editingUser && (
+          <UserEditForm
+            key={editingUser.id}
+            user={editingUser}
+            currentUserId={me.data?.id}
+            onSaved={() => setEditingUser(null)}
+            onCancel={() => setEditingUser(null)}
+          />
+        )}
+      </Modal>
 
       <Modal
         open={selectedUser !== null}

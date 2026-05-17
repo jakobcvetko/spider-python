@@ -19,6 +19,10 @@ class AdminUserOut(BaseModel):
     telegram_username: str | None = None
 
 
+class AdminUserUpdateIn(BaseModel):
+    is_admin: bool
+
+
 class UserActivityOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

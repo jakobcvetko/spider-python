@@ -9,6 +9,11 @@ from app.deps import get_current_user
 from app.models import Scraper, User
 from app.schemas.scraper import ScraperCreateIn, ScraperOut, ScraperUpdateIn
 from app.search_normalize import sync_scraper_search_tokens
+from app.telegram.admin_notify import (
+    notify_scraper_created,
+    notify_scraper_deleted,
+    notify_scraper_updated,
+)
 
 router = APIRouter(prefix="/scrapers", tags=["scrapers"])
 
@@ -65,6 +70,7 @@ async def create_scraper(
     db.add(scraper)
     await db.commit()
     await db.refresh(scraper)
+    await notify_scraper_created(db, user, scraper)
     return scraper
 
 
@@ -86,6 +92,7 @@ async def update_scraper(
     _ensure_active_sources(scraper)
     await db.commit()
     await db.refresh(scraper)
+    await notify_scraper_updated(db, user, scraper)
     return scraper
 
 
@@ -96,5 +103,7 @@ async def delete_scraper(
     user: User = Depends(get_current_user),
 ) -> None:
     scraper = await _get_owned_scraper(scraper_id, user, db)
+    scraper_name = scraper.name
+    await notify_scraper_deleted(db, user, scraper_id=scraper_id, name=scraper_name)
     await db.delete(scraper)
     await db.commit()

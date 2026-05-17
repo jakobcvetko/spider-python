@@ -13,6 +13,7 @@ from app.models import Session as SessionModel
 from app.models import User
 from app.schemas.auth import LoginIn, RegisterIn, UserOut
 from app.security import generate_session_token, hash_password, verify_password
+from app.telegram.admin_notify import notify_user_registered
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -76,6 +77,7 @@ async def register(
             detail="Email already registered",
         ) from None
     await db.refresh(user)
+    await notify_user_registered(db, user)
 
     token, _ = await _create_session(db, user)
     _set_session_cookie(response, token, settings.session_lifetime_days * 86400)

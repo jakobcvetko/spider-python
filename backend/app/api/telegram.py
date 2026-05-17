@@ -13,6 +13,7 @@ from app.models import User
 from app.schemas.telegram import TelegramLinkOut, TelegramStatusOut
 from app.telegram.bot_state import get_bot_username
 from app.telegram.link import create_link_token, deep_link_url, disconnect_user
+from app.telegram.admin_notify import notify_user_removed_telegram
 from app.telegram.notify import send_test_message
 from app.telegram.webhook import handle_update
 
@@ -72,6 +73,7 @@ async def telegram_disconnect(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
+    await notify_user_removed_telegram(db, user)
     await disconnect_user(db, user)
     await db.commit()
 
