@@ -39,6 +39,7 @@ from app.schemas.admin import (
     TriggerResponse,
 )
 from app.scraper_events import get_event_bus, make_event
+from app.telegram.notify import notify_new_matches
 from matcher.match import BOLHA_SOURCE, match_listing
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -342,12 +343,16 @@ async def run_matcher_for_bolha_ad(
             detail="No listing row for this ad (run lookahead/backfill first)",
         )
 
-    matches_created = await match_listing(db, listing_id)
+    new_matches = await match_listing(db, listing_id)
     await db.commit()
+
+    if new_matches:
+        await notify_new_matches(new_matches)
+
     return BolhaAdMatchResponse(
         ad_id=ad_id,
         listing_id=listing_id,
-        matches_created=matches_created,
+        matches_created=len(new_matches),
     )
 
 

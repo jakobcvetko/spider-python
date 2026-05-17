@@ -20,6 +20,7 @@ import asyncpg
 from app.database import SessionLocal
 from app.matcher_jobs import MATCHER_JOBS_CHANNEL
 from app.scraper_events import _asyncpg_dsn
+from app.telegram.notify import NewMatch, notify_new_matches
 from matcher.match import match_listing
 
 logging.basicConfig(
@@ -30,13 +31,18 @@ log = logging.getLogger("matcher")
 
 
 async def _process_listing(listing_id: uuid.UUID) -> None:
+    new_matches: list[NewMatch] = []
     async with SessionLocal() as db:
         try:
-            await match_listing(db, listing_id)
+            new_matches = await match_listing(db, listing_id)
             await db.commit()
         except Exception:
             await db.rollback()
             log.exception("matcher: failed for listing %s", listing_id)
+            return
+
+    if new_matches:
+        await notify_new_matches(new_matches)
 
 
 def _make_notify_handler(stop: asyncio.Event):

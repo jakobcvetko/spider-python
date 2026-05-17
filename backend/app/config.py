@@ -28,10 +28,23 @@ class Settings(BaseSettings):
         default="spider-bot/0.1 (+https://example.com)",
         alias="SCRAPER_USER_AGENT",
     )
+    telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
+    telegram_webhook_secret: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET")
+    telegram_webhook_base_url: str | None = Field(
+        default=None, alias="TELEGRAM_WEBHOOK_BASE_URL"
+    )
+    telegram_polling: bool = Field(default=False, alias="TELEGRAM_POLLING")
+    telegram_link_token_ttl_minutes: int = Field(
+        default=15, alias="TELEGRAM_LINK_TOKEN_TTL_MINUTES"
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def telegram_enabled(self) -> bool:
+        return bool(self.telegram_bot_token)
 
 
 @lru_cache

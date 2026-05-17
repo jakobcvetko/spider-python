@@ -8,12 +8,14 @@ from app.models.listing import Listing
 from app.models.scraper import Scraper
 from app.models.scraper_match import ScraperMatch
 from app.models.session import Session
+from app.models.telegram_link_token import TelegramLinkToken
 from app.models.user import User
 
 __all__ = [
     "Base",
     "User",
     "Session",
+    "TelegramLinkToken",
     "Scraper",
     "ScraperMatch",
     "Listing",
