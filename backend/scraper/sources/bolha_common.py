@@ -51,6 +51,9 @@ def make_probe_client(
         event_hooks=shared.event_hooks,
     )
 
+# Lookahead/scout only promote bolha_ads.status to success; everything else stays pending.
+FRONTIER_AD_STATUS_SOURCES = frozenset({"bolha.lookahead", "bolha.scout"})
+
 LOOKAHEAD_ADS = 5
 LOOKAHEAD_TIMEOUT_SECONDS = 5
 LOOKAHEAD_PROBE_TIMEOUT_SECONDS = 15.0
@@ -216,7 +219,11 @@ def scrape_result_from_outcome(outcome: str) -> str:
     return SCRAPE_RESULT_ERROR
 
 
-def ad_status_from_scrape_result(result: str) -> str:
+def ad_status_from_scrape_result(result: str, *, source: str | None = None) -> str:
+    if source in FRONTIER_AD_STATUS_SOURCES:
+        if result == SCRAPE_RESULT_SUCCESS:
+            return AD_STATUS_SUCCESS
+        return AD_STATUS_PENDING
     if result == SCRAPE_RESULT_SUCCESS:
         return AD_STATUS_SUCCESS
     if result == SCRAPE_RESULT_REMOVED:
@@ -279,7 +286,7 @@ async def record_bolha_ad_scrape(
     if detail:
         entry["detail"] = detail[:500]
 
-    new_status = ad_status_from_scrape_result(result)
+    new_status = ad_status_from_scrape_result(result, source=source)
     row = await db.get(BolhaAd, ad_id)
     if row is None:
         row = BolhaAd(ad_id=ad_id, status=new_status, scrape_log=[entry])
@@ -513,6 +520,8 @@ def classify_probe_response(
 ]:
     http_st = resp.status_code
     if resp.status_code == 404:
+        if stayed_on_progressive_scrape_url(resp, ad_id):
+            return "not_yet_created", None, None, http_st
         return "not_found", None, None, http_st
     if resp.status_code != 200:
         return "bad_status", None, None, http_st

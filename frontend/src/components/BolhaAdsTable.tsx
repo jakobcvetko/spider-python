@@ -35,8 +35,33 @@ function timelinePastLabel(ms: number): string {
   return `−${Math.round(ms / 3_600_000)}h`
 }
 
-function statusTone(status: string): string {
-  switch (status) {
+function latestScrapeResult(scrapes: BolhaAdScrapeEntry[]): string | null {
+  let latest: BolhaAdScrapeEntry | null = null
+  let latestAt = -Infinity
+  for (const s of scrapes) {
+    const t = Date.parse(s.at)
+    if (Number.isNaN(t) || t < latestAt) continue
+    latestAt = t
+    latest = s
+  }
+  return latest?.result ?? null
+}
+
+function statusLabel(row: BolhaAdRow): string {
+  const latest = latestScrapeResult(row.scrapes)
+  if (latest === 'empty' || latest === 'error') return latest
+  return row.status
+}
+
+function statusTone(row: BolhaAdRow): string {
+  const latest = latestScrapeResult(row.scrapes)
+  if (latest === 'empty') {
+    return 'bg-yellow-50 text-yellow-800 ring-yellow-200'
+  }
+  if (latest === 'error') {
+    return 'bg-red-50 text-red-800 ring-red-200'
+  }
+  switch (row.status) {
     case 'pending':
       return 'bg-amber-50 text-amber-800 ring-amber-200'
     case 'success':
@@ -53,7 +78,7 @@ function scrapeSquareFill(result: string): string {
     case 'success':
       return 'bg-emerald-500'
     case 'empty':
-      return 'bg-amber-500'
+      return 'bg-yellow-500'
     case 'removed':
       return 'bg-rose-500'
     case 'error':
@@ -142,12 +167,19 @@ function adRowHighlight(
   return null
 }
 
-function rowClassName(highlight: RowHighlight): string {
+function rowClassName(highlight: RowHighlight, row: BolhaAdRow): string {
   if (highlight === 'last-id') {
     return 'bg-indigo-500/15 ring-1 ring-inset ring-indigo-400/50'
   }
   if (highlight === 'lookahead') {
     return 'bg-sky-500/10 ring-1 ring-inset ring-sky-500/35'
+  }
+  const latest = latestScrapeResult(row.scrapes)
+  if (latest === 'empty') {
+    return 'bg-yellow-50/80 hover:bg-yellow-50'
+  }
+  if (latest === 'error') {
+    return 'bg-red-50/80 hover:bg-red-50'
   }
   return 'hover:bg-zinc-50'
 }
@@ -281,7 +313,7 @@ function AdDataRow({
   matchError?: string | null
 }) {
   return (
-    <tr className={rowClassName(highlight)}>
+    <tr className={rowClassName(highlight, row)}>
       <TimelineNode highlight={highlight} />
       <td className="whitespace-nowrap px-2 py-1.5">
         <a
@@ -295,9 +327,9 @@ function AdDataRow({
       </td>
       <td className="px-2 py-1.5">
         <span
-          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${statusTone(row.status)}`}
+          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${statusTone(row)}`}
         >
-          {row.status}
+          {statusLabel(row)}
         </span>
       </td>
       <td className="px-2 py-1.5">
@@ -525,7 +557,7 @@ export function BolhaAdsTable({ enabled, limit = BOLHA_ADS_TOP_LIMIT }: BolhaAds
               <span className="size-2.5 rounded-sm bg-emerald-500" /> success
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="size-2.5 rounded-sm bg-amber-500" /> empty
+              <span className="size-2.5 rounded-sm bg-yellow-500" /> empty (no ad)
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="size-2.5 rounded-sm bg-rose-500" /> removed
