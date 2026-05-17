@@ -81,7 +81,7 @@ export function AdminLayout() {
         <h1 className="text-lg font-semibold">Admins only</h1>
         <p className="mt-2 text-sm text-zinc-600">
           Your account doesn't have admin access.{' '}
-          <Link to="/" className="text-indigo-600 hover:underline">
+          <Link to="/dash" className="text-indigo-600 hover:underline">
             Back to home
           </Link>
         </p>
@@ -98,7 +98,7 @@ export function AdminLayout() {
         items={ADMIN_NAV}
         trailing={({ onNavigate, layout }) => (
           <UserAccountMenu displayName={displayName} onClose={onNavigate} layout={layout}>
-            <DashboardSwitchLink to="/" target="user" onClick={onNavigate} />
+            <DashboardSwitchLink to="/dash" target="user" onClick={onNavigate} />
           </UserAccountMenu>
         )}
       />

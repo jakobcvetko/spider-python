@@ -1,75 +1,27 @@
-import { useState } from 'react'
-import type { FormEvent } from 'react'
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 
-import { Button, Input, PageShell } from '../components/ui'
-import { getErrorMessage, useLogin, useMe } from '../lib/auth'
+import { AuthPageShell } from '../components/AuthPageShell'
+import { LoginForm } from '../components/LoginForm'
+import { useMarketingLocale } from '../hooks/useMarketingLocale'
+import { useMe } from '../lib/auth'
+import { authReturnPath } from '../lib/routes'
 
 type LocationState = { from?: { pathname?: string } } | null
 
 export default function LoginPage() {
-  const navigate = useNavigate()
   const location = useLocation()
   const me = useMe()
-  const login = useLogin()
+  const { t } = useMarketingLocale()
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const returnTo = authReturnPath((location.state as LocationState)?.from?.pathname)
 
   if (me.data) {
-    return <Navigate to="/" replace />
-  }
-
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    try {
-      await login.mutateAsync({ email, password })
-      const next = (location.state as LocationState)?.from?.pathname || '/'
-      navigate(next, { replace: true })
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not sign in'))
-    }
+    return <Navigate to={returnTo} replace />
   }
 
   return (
-    <PageShell>
-      <div className="mx-auto max-w-md space-y-4 pt-8 sm:pt-12">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-          <p className="mt-1 text-sm text-zinc-500">Welcome back to Spider.</p>
-        </div>
-        <form onSubmit={onSubmit} className="space-y-4">
-          <Input
-            label="Email"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <Input
-            label="Password"
-            type="password"
-            autoComplete="current-password"
-            required
-            minLength={1}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <Button type="submit" loading={login.isPending} className="w-full">
-            Sign in
-          </Button>
-        </form>
-        <p className="text-sm text-zinc-500">
-          New here?{' '}
-          <Link to="/register" className="text-indigo-600 hover:text-indigo-700">
-            Create an account
-          </Link>
-        </p>
-      </div>
-    </PageShell>
+    <AuthPageShell title={t.login.title} description={t.login.description}>
+      <LoginForm returnTo={returnTo} />
+    </AuthPageShell>
   )
 }

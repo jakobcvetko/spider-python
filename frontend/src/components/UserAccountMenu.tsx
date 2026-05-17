@@ -58,7 +58,7 @@ export function UserAccountMenu({
   const onLogout = async () => {
     close()
     await logout.mutateAsync()
-    navigate('/login', { replace: true })
+    navigate('/', { replace: true })
   }
 
   if (layout === 'stacked') {

@@ -85,7 +85,7 @@ export default function HomePage() {
                 </p>
               )}
             </div>
-            <Link to="/scrapers">
+            <Link to="/dash/scrapers">
               <Button type="button" variant="ghost" className="px-3 py-1.5">
                 Manage scrapers
               </Button>

@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@theme {
+  --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
 :root {
   color-scheme: light;
 }
@@ -10,7 +15,124 @@ html, body, #root {
 
 body {
   margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
   background: #fafafa;
   color: #18181b;
+}
+
+/* —— Landing page —— */
+
+.landing-page {
+  font-family: var(--font-sans);
+}
+
+.landing-header {
+  animation: landing-fade-down 0.7s ease-out both;
+}
+
+.landing-hero-bg {
+  animation: landing-hero-zoom 18s ease-out forwards;
+  transform: scale(1.06);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: scroll()) {
+    .landing-hero-bg {
+      animation: landing-hero-zoom 18s ease-out forwards;
+      animation-timeline: scroll();
+      animation-range: exit 0% exit 100%;
+    }
+  }
+}
+
+.landing-hero-enter {
+  opacity: 0;
+  transform: translateY(1.25rem);
+  animation: landing-fade-up 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.landing-hero-enter--2 { animation-delay: 0.1s; }
+.landing-hero-enter--3 { animation-delay: 0.2s; }
+.landing-hero-enter--4 { animation-delay: 0.3s; }
+.landing-hero-enter--5 { animation-delay: 0.4s; }
+
+.landing-reveal {
+  opacity: 0;
+  transform: translateY(2rem);
+  transition:
+    opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.landing-reveal--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.landing-page label span:first-child {
+  color: #d4d4d8;
+}
+
+.landing-input {
+  border-color: rgb(255 255 255 / 0.15);
+  background: rgb(0 0 0 / 0.35);
+  color: #fafafa;
+}
+
+.landing-input::placeholder {
+  color: #71717a;
+}
+
+.landing-input:focus {
+  border-color: #f59e0b;
+  --tw-ring-color: #f59e0b;
+}
+
+.landing-submit {
+  background: #f59e0b !important;
+  color: #09090b !important;
+}
+
+.landing-submit:hover:not(:disabled) {
+  background: #fbbf24 !important;
+}
+
+.landing-submit:focus {
+  --tw-ring-color: #f59e0b !important;
+}
+
+@keyframes landing-fade-up {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-fade-down {
+  from {
+    opacity: 0;
+    transform: translateY(-0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-hero-zoom {
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-bg,
+  .landing-hero-enter,
+  .landing-header,
+  .landing-reveal {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }

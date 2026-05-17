@@ -7,9 +7,9 @@ import { PageShell } from './ui'
 import { useMe } from '../lib/auth'
 
 const USER_NAV: NavItem[] = [
-  { type: 'link', to: '/', label: 'Home', end: true },
-  { type: 'link', to: '/scrapers', label: 'Scrapers' },
-  { type: 'link', to: '/listings', label: 'Listings' },
+  { type: 'link', to: '/dash', label: 'Home', end: true },
+  { type: 'link', to: '/dash/scrapers', label: 'Scrapers' },
+  { type: 'link', to: '/dash/listings', label: 'Listings' },
 ]
 
 export function UserLayout() {

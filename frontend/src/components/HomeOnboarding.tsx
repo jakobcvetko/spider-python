@@ -120,7 +120,7 @@ export function HomeOnboarding({
                   Add at least one scraper with Bolha or Avto.net enabled to start matching
                   listings.
                 </p>
-                <Link to="/scrapers" className="mt-3 inline-block">
+                <Link to="/dash/scrapers" className="mt-3 inline-block">
                   <Button type="button" variant="primary" className="px-3 py-1.5">
                     Create scraper
                   </Button>

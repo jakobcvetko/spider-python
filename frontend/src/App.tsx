@@ -12,6 +12,7 @@ import AdminBolhaHttpLogsPage from './pages/AdminBolhaHttpLogsPage'
 import AdminBolhaListingsPage from './pages/AdminBolhaListingsPage'
 import AdminListingsPage from './pages/AdminListingsPage'
 import HomePage from './pages/HomePage'
+import LandingPage from './pages/LandingPage'
 import ListingsPage from './pages/ListingsPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -20,10 +21,11 @@ import ScrapersPage from './pages/ScrapersPage'
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route
-        path="/"
+        path="/dash"
         element={
           <ProtectedRoute>
             <UserLayout />

@@ -207,9 +207,10 @@ export function AppNavBar({
   return (
     <header className="mb-4 border-b border-zinc-200 pb-3">
       <div className="flex items-center justify-between gap-2">
-        <AppLogo to={logoTo} variant={logoVariant} onClick={closeMenus} />
+        <div className="flex min-w-0 flex-1 items-center gap-4 md:gap-6">
+          <AppLogo to={logoTo} variant={logoVariant} onClick={closeMenus} />
 
-        <nav className="hidden items-center gap-0.5 md:flex" aria-label="Main">
+          <nav className="hidden items-center gap-0.5 md:flex" aria-label="Main">
           {items.map((item) =>
             item.type === 'link' ? (
               <NavLink
@@ -225,7 +226,8 @@ export function AppNavBar({
               <NavGroupDesktop key={item.label} item={item} onNavigate={closeMenus} />
             ),
           )}
-        </nav>
+          </nav>
+        </div>
 
         <div className="flex shrink-0 items-center gap-1">
           <button
