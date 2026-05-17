@@ -351,11 +351,16 @@ async def record_bolha_ad_scrape_from_outcome(
 def stayed_on_progressive_scrape_url(resp: httpx.Response, ad_id: int) -> bool:
     """True if the final URL is still the synthetic progressive-scrape page for ``ad_id``.
 
-    Bolha uses two inactive shapes: same-URL (ID not published yet) vs canonical redirect
-    (listing existed; slot is expired/offline). Only the latter advances ``last_working_ad_id``
-    without queuing backfill.
+    Bolha uses two empty-slot shapes: same-URL 404 (ID not published yet) vs canonical redirect
+    with GTM ``expired`` (listing slot consumed; listing is gone). GTM ``inactive`` still serves
+    a full listing page and is treated as scrape success.
     """
     return f"progressive-scrape-oglas-{ad_id}" in str(resp.url).lower()
+
+
+def redirected_to_listing_page(resp: httpx.Response, ad_id: int) -> bool:
+    """True when Bolha redirected to a category listing URL for this ad id."""
+    return f"-oglas-{ad_id}" in str(resp.url).lower()
 
 
 async def promote_pending_below_to_backfill(
@@ -510,7 +515,7 @@ def classify_probe_response(
     if resp.status_code != 200:
         return "bad_status", None, None, http_st
     gtm = extract_gtm_ad_status(html)
-    if gtm == "active":
+    if gtm in ("active", "inactive") and redirected_to_listing_page(resp, ad_id):
         return "active", gtm, None, http_st
     if stayed_on_progressive_scrape_url(resp, ad_id):
         return "not_yet_created", gtm, None, http_st
