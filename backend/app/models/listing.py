@@ -23,6 +23,9 @@ class Listing(Base, TimestampMixin):
     external_id: Mapped[str] = mapped_column(String(128), nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
+    title_normalized: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="", default=""
+    )
     price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)

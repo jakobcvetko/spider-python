@@ -8,6 +8,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models import Scraper, User
 from app.schemas.scraper import ScraperCreateIn, ScraperOut, ScraperUpdateIn
+from app.search_normalize import sync_scraper_search_tokens
 
 router = APIRouter(prefix="/scrapers", tags=["scrapers"])
 
@@ -60,6 +61,7 @@ async def create_scraper(
         avtonet_enabled=body.avtonet_enabled,
     )
     _ensure_active_sources(scraper)
+    sync_scraper_search_tokens(scraper)
     db.add(scraper)
     await db.commit()
     await db.refresh(scraper)
@@ -76,6 +78,7 @@ async def update_scraper(
     scraper = await _get_owned_scraper(scraper_id, user, db)
     if body.name is not None:
         scraper.name = body.name.strip()
+        sync_scraper_search_tokens(scraper)
     if body.bolha_enabled is not None:
         scraper.bolha_enabled = body.bolha_enabled
     if body.avtonet_enabled is not None:

@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Listing
+from app.search_normalize import normalize_text
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ async def upsert_items(
             "external_id": item.external_id,
             "url": item.url,
             "title": item.title,
+            "title_normalized": normalize_text(item.title),
             "price_cents": item.price_cents,
             "currency": item.currency,
             "location": item.location,

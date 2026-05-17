@@ -1,7 +1,7 @@
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, ForeignKey, String, text
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -27,4 +27,10 @@ class Scraper(Base, TimestampMixin):
     )
     avtonet_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false", default=False
+    )
+    search_tokens: Mapped[list[str]] = mapped_column(
+        ARRAY(String),
+        nullable=False,
+        server_default=text("'{}'::text[]"),
+        default=list,
     )

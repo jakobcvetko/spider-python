@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Listing, Scraper, ScraperMatch, User
+from app.search_normalize import normalize_text
 from app.telegram.notify import NewMatch
 
 log = logging.getLogger(__name__)
@@ -15,19 +16,31 @@ log = logging.getLogger(__name__)
 BOLHA_SOURCE = "bolha.com"
 AVTONET_SOURCE = "avto.net"
 
+_ALL_TOKENS_IN_TITLE = text(
+    "NOT EXISTS ("
+    "SELECT 1 FROM unnest(scrapers.search_tokens) AS t(token) "
+    "WHERE position(t.token IN :normalized_title) = 0"
+    ")")
 
-def _title_matches_scraper_name(title: str, scraper_name: str) -> bool:
-    name = scraper_name.strip()
-    if not name:
-        return False
-    return name.casefold() in title.casefold()
+
+async def _listing_normalized_title(db: AsyncSession, listing: Listing) -> str:
+    if listing.title_normalized:
+        return listing.title_normalized
+    normalized = normalize_text(listing.title)
+    listing.title_normalized = normalized
+    await db.flush()
+    return normalized
 
 
-async def _scrapers_for_listing_source(
+async def _scrapers_matching_listing(
     db: AsyncSession,
     listing_source: str,
+    normalized_title: str,
 ) -> list[Scraper]:
-    stmt = select(Scraper)
+    stmt = select(Scraper).where(
+        func.cardinality(Scraper.search_tokens) > 0,
+        _ALL_TOKENS_IN_TITLE.bindparams(normalized_title=normalized_title),
+    )
     if listing_source == BOLHA_SOURCE:
         stmt = stmt.where(Scraper.bolha_enabled.is_(True))
     elif listing_source == AVTONET_SOURCE:
@@ -39,19 +52,17 @@ async def _scrapers_for_listing_source(
 
 
 async def match_listing(db: AsyncSession, listing_id: uuid.UUID) -> list[NewMatch]:
-    """Check all scrapers against a listing title; insert new matches. Returns notify targets."""
+    """Check enabled scrapers against listing title tokens; insert new matches."""
     listing = await db.get(Listing, listing_id)
     if listing is None:
         log.warning("matcher: listing %s not found", listing_id)
         return []
 
-    scrapers = await _scrapers_for_listing_source(db, listing.source)
-    if not scrapers:
+    normalized_title = await _listing_normalized_title(db, listing)
+    if not normalized_title:
         return []
 
-    matched_scrapers = [
-        s for s in scrapers if _title_matches_scraper_name(listing.title, s.name)
-    ]
+    matched_scrapers = await _scrapers_matching_listing(db, listing.source, normalized_title)
     if not matched_scrapers:
         return []
 

@@ -101,15 +101,22 @@ function ScraperForm({
         })
       }}
     >
-      <Input
-        label="Name"
-        value={form.name}
-        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-        placeholder="e.g. Daily Bolha cars"
-        required
-        maxLength={120}
-        autoFocus
-      />
+      <div className="space-y-1">
+        <Input
+          label="Name"
+          value={form.name}
+          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          placeholder="e.g. MUTA Prikolica"
+          required
+          maxLength={120}
+          autoFocus
+        />
+        <p className="text-xs text-zinc-500">
+          Words are matched separately; accents ignored. Each word can match part of a title
+          word (e.g. <span className="font-mono">cist</span> matches{' '}
+          <span className="font-mono">čistilec</span>). All words must match.
+        </p>
+      </div>
       <SourceCheckboxes
         bolha={form.bolha_enabled}
         avtonet={form.avtonet_enabled}
