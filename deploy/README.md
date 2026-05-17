@@ -32,8 +32,20 @@ Managed in **Cloudflare** (zone `spider.si`). API token: repo-root `.env`
 | `worker-lookahead` | `python -m scraper.worker --sources bolha.lookahead` |
 | `worker-backfill` | `python -m scraper.worker --sources bolha.backfill` |
 | `worker-matcher` | `python -m matcher.worker` |
+| `worker-avtonet` | `python -m scraper.worker --sources avto.net.lookahead` (needs Firecrawl) |
 | `db` | Postgres 16 (persistent volume) |
 | `caddy` | HTTPS reverse proxy → `api:8000` |
+
+**Self-hosted Firecrawl** (separate compose, not deployed by CI automatically):
+
+```bash
+# On the VPS after spider stack is up
+cd /opt/spider
+bash deploy/firecrawl-prod.sh
+```
+
+Set in `/opt/spider/.env`: `FIRECRAWL_API_URL=http://firecrawl-api:3002`, `AVTONET_FETCH_MODE=firecrawl`.
+Then recreate app containers: `docker compose -f docker-compose.prod.yml up -d --force-recreate`.
 
 All workers share the production Postgres DB and use `LISTEN`/`NOTIFY` (see `AGENTS.md`).
 

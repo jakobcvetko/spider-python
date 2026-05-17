@@ -1,0 +1,105 @@
+# Self-hosted Firecrawl on the Hetzner prod host (alongside spider compose).
+# API is reachable from spider containers at http://firecrawl-api:3002 (not public).
+#
+#   docker compose -f docker-compose.firecrawl.prod.yml pull
+#   docker compose -f docker-compose.firecrawl.prod.yml up -d
+#
+# Server .env:
+#   FIRECRAWL_API_URL=http://firecrawl-api:3002
+#   AVTONET_FETCH_MODE=firecrawl
+
+name: spider-firecrawl
+
+x-firecrawl-env: &firecrawl-env
+  REDIS_URL: redis://firecrawl-redis:6379
+  REDIS_RATE_LIMIT_URL: redis://firecrawl-redis:6379
+  PLAYWRIGHT_MICROSERVICE_URL: http://firecrawl-playwright:3000/scrape
+  NUQ_RABBITMQ_URL: amqp://firecrawl-rabbitmq:5672
+  POSTGRES_HOST: firecrawl-postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  POSTGRES_DB: postgres
+  NUQ_DATABASE_URL: postgresql://postgres:postgres@firecrawl-postgres:5432/postgres
+  USE_DB_AUTHENTICATION: "false"
+  ENV: production
+  HOST: "0.0.0.0"
+  INTERNAL_PORT: "3002"
+  BULL_AUTH_KEY: ${FIRECRAWL_BULL_AUTH_KEY:-spider-prod}
+  CRAWL_CONCURRENT_REQUESTS: "3"
+  MAX_CONCURRENT_JOBS: "2"
+  BROWSER_POOL_SIZE: "2"
+
+services:
+  firecrawl-redis:
+    image: redis:alpine
+    restart: unless-stopped
+    command: redis-server --bind 0.0.0.0
+    networks: [firecrawl_internal]
+
+  firecrawl-rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    networks: [firecrawl_internal]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  firecrawl-postgres:
+    image: ghcr.io/firecrawl/nuq-postgres:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    networks: [firecrawl_internal]
+    volumes:
+      - firecrawl_pg_data:/var/lib/postgresql/data
+
+  firecrawl-playwright:
+    image: ghcr.io/firecrawl/playwright-service:latest
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      MAX_CONCURRENT_PAGES: "3"
+    networks: [firecrawl_internal]
+    mem_limit: 2g
+
+  firecrawl-api:
+    image: ghcr.io/firecrawl/firecrawl:latest
+    container_name: firecrawl-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3002:3002"
+    environment:
+      <<: *firecrawl-env
+      PORT: "3002"
+    depends_on:
+      firecrawl-redis:
+        condition: service_started
+      firecrawl-rabbitmq:
+        condition: service_healthy
+      firecrawl-postgres:
+        condition: service_started
+      firecrawl-playwright:
+        condition: service_started
+    command: ["node", "dist/src/harness.js", "--start-docker"]
+    networks:
+      firecrawl_internal: {}
+      spider_default:
+        aliases:
+          - firecrawl-api
+    mem_limit: 4g
+
+networks:
+  firecrawl_internal:
+    driver: bridge
+  spider_default:
+    external: true
+    name: spider_default
+
+volumes:
+  firecrawl_pg_data:

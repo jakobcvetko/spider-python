@@ -61,7 +61,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: docker-compose.prod.yml,deploy/
+          source: docker-compose.prod.yml,docker-compose.firecrawl.prod.yml,deploy/
           target: ${{ secrets.DEPLOY_PATH }}
 
       - name: Deploy on server
