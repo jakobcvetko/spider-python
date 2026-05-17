@@ -19,6 +19,9 @@ SCRAPE_RESULT_EMPTY = "empty"
 SCRAPE_RESULT_REMOVED = "removed"
 SCRAPE_RESULT_ERROR = "error"
 
+# Per-scrape result stored in scrape_log entries.
+SCRAPE_LOG_MAX_ENTRIES = 50
+
 
 class AvtonetAd(Base, TimestampMixin):
     """Persistent registry of every avto.net ad ID probed by lookahead."""

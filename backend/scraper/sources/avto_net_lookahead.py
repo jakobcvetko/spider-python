@@ -23,7 +23,6 @@ from scraper.sources.avtonet_pipeline import (
     LOOKAHEAD_HIGH_WATER_REFRESH_BATCHES,
     LOOKAHEAD_TIMEOUT_SECONDS,
     activate_last_working_ad,
-    delete_lookahead_below_ad,
     emit_progress_tick,
     get_meta,
     max_numeric_listing_id,
@@ -31,10 +30,8 @@ from scraper.sources.avtonet_pipeline import (
     meta_set_last_working,
     outcome_from_class,
     pipeline_kind_from_probe,
+    record_avtonet_ad_scrape,
     record_avtonet_ad_scrape_from_outcome,
-    upsert_expired_state,
-    upsert_lookahead_state,
-    upsert_probe,
 )
 
 log = logging.getLogger(__name__)
@@ -113,30 +110,15 @@ class AvtoNetLookaheadSource:
         emit: EmitFn,
     ) -> None:
         detail = (slot.http_error or "unknown")[:500]
-        await upsert_probe(
-            db,
-            slot.ad_id,
-            fetched_at=now,
-            http_status=-1,
-            outcome="http_error",
-            detail=detail,
-        )
-        await record_avtonet_ad_scrape_from_outcome(
+        await record_avtonet_ad_scrape(
             db,
             slot.ad_id,
             source=self.name,
-            outcome="http_error",
+            result="error",
             fetched_at=now,
             http_status=-1,
             detail=detail,
             emit=emit,
-        )
-        await upsert_lookahead_state(
-            db,
-            slot.ad_id,
-            now=now,
-            last_outcome="http_error",
-            detail=detail,
         )
         await emit_progress_tick(
             emit,
@@ -179,14 +161,6 @@ class AvtoNetLookaheadSource:
             kind = pipeline_kind_from_probe(result)
             oc = outcome_from_class(kind)
 
-            await upsert_probe(
-                db,
-                slot.ad_id,
-                fetched_at=now,
-                http_status=result.http_status,
-                outcome=oc,
-                detail=result.detail,
-            )
             await record_avtonet_ad_scrape_from_outcome(
                 db,
                 slot.ad_id,
@@ -236,14 +210,6 @@ class AvtoNetLookaheadSource:
                     outcome=oc,
                     http_status=result.http_status,
                 )
-                await upsert_expired_state(
-                    db,
-                    slot.ad_id,
-                    now=now,
-                    last_outcome=oc,
-                    detail=result.detail,
-                )
-                await delete_lookahead_below_ad(db, slot.ad_id)
                 await meta_set_last_working(db, slot.ad_id)
                 await db.commit()
                 log.info(
@@ -254,13 +220,6 @@ class AvtoNetLookaheadSource:
                 )
                 return True
 
-            await upsert_lookahead_state(
-                db,
-                slot.ad_id,
-                now=now,
-                last_outcome=oc,
-                detail=result.detail,
-            )
             await emit_progress_tick(
                 emit,
                 scraper_name=self.name,

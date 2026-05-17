@@ -328,13 +328,16 @@ class AvtoNetScoutSource:
     ) -> int:
         while hi - lo > 1:
             mid = (lo + hi) // 2
+            lo_before = lo
             highest_known, exhausted = await self._probe_window(
                 db, client, emit, state, mid
             )
             if exhausted:
                 break
             if highest_known is not None:
-                lo = highest_known
+                lo = max(lo, highest_known)
+                if lo == lo_before:
+                    hi = min(hi, mid - 1)
             else:
                 hi = max(lo + 1, mid - SCOUT_PROBE_WINDOW_RADIUS - 1)
         state.lo = lo

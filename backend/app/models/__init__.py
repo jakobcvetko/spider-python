@@ -1,8 +1,5 @@
 from app.models.base import Base
 from app.models.avtonet_ad import AvtonetAd
-from app.models.avtonet_ad_probe import AvtonetAdProbe
-from app.models.avtonet_ad_state import AvtonetAdState
-from app.models.avtonet_inactive_ad import AvtonetInactiveAd
 from app.models.avtonet_scrape_meta import AvtonetScrapeMeta
 from app.models.bolha_ad import BolhaAd
 from app.models.bolha_scrape_meta import BolhaScrapeMeta
@@ -24,8 +21,5 @@ __all__ = [
     "BolhaScrapeMeta",
     "BolhaAd",
     "AvtonetAd",
-    "AvtonetAdProbe",
-    "AvtonetAdState",
-    "AvtonetInactiveAd",
     "AvtonetScrapeMeta",
 ]

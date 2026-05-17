@@ -27,13 +27,12 @@ from scraper.sources.avtonet_pipeline import (
     BACKFILL_CYCLE_PAUSE_SECONDS,
     BACKFILL_TIMEOUT_SECONDS,
     EmitFn,
-    delete_ad_state,
     emit_progress_tick,
     get_meta,
     outcome_from_class,
     pipeline_kind_from_probe,
+    record_avtonet_ad_scrape,
     record_avtonet_ad_scrape_from_outcome,
-    upsert_probe,
 )
 
 log = logging.getLogger(__name__)
@@ -100,22 +99,14 @@ class AvtoNetBackfillSource:
                 if result.http_status < 0:
                     detail = (result.detail or "http_error")[:500]
                     log.warning("avto.net backfill: probe %s failed: %s", ad_id, detail)
-                    await upsert_probe(
-                        db,
-                        ad_id,
-                        fetched_at=now,
-                        http_status=-1,
-                        outcome="http_error",
-                        detail=detail,
-                    )
-                    await record_avtonet_ad_scrape_from_outcome(
+                    await record_avtonet_ad_scrape(
                         db,
                         ad_id,
                         source=self.name,
-                        outcome="http_error",
+                        result="error",
                         fetched_at=now,
                         http_status=-1,
-                        detail=result.detail,
+                        detail=detail,
                         emit=emit,
                     )
                     await emit_progress_tick(
@@ -135,14 +126,6 @@ class AvtoNetBackfillSource:
                 kind = pipeline_kind_from_probe(result)
                 oc = outcome_from_class(kind)
 
-                await upsert_probe(
-                    db,
-                    ad_id,
-                    fetched_at=now,
-                    http_status=result.http_status,
-                    outcome=oc,
-                    detail=result.detail,
-                )
                 await record_avtonet_ad_scrape_from_outcome(
                     db,
                     ad_id,
@@ -165,7 +148,6 @@ class AvtoNetBackfillSource:
 
                 if kind == "active" and result.item is not None:
                     collected.append(result.item)
-                    await delete_ad_state(db, ad_id)
                     try:
                         await upsert_items(db, LISTING_SOURCE, [result.item])
                     except Exception:
@@ -187,7 +169,6 @@ class AvtoNetBackfillSource:
                     continue
 
                 if kind == "expired":
-                    await delete_ad_state(db, ad_id)
                     await db.execute(
                         update(AvtonetAd)
                         .where(AvtonetAd.ad_id == ad_id)

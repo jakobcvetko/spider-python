@@ -1,4 +1,4 @@
-"""avto.net progressive-scrape pipeline (mirrors bolha_common)."""
+"""avto.net progressive-scrape pipeline (avtonet_ads + avtonet_scrape_meta only)."""
 
 from __future__ import annotations
 
@@ -8,18 +8,12 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 import httpx
-from sqlalchemy import delete, text, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
-from app.models import (
-    AvtonetAd,
-    AvtonetAdProbe,
-    AvtonetAdState,
-    AvtonetScrapeMeta,
-)
 from app.matcher_jobs import enqueue_matcher_job
+from app.models import AvtonetAd, AvtonetScrapeMeta
 from app.models.avtonet_ad import (
     AD_STATUS_BACKFILL,
     AD_STATUS_EMPTY,
@@ -27,6 +21,7 @@ from app.models.avtonet_ad import (
     AD_STATUS_REMOVED,
     AD_STATUS_SUCCESS,
     AD_STATUS_TIMEDOUT,
+    SCRAPE_LOG_MAX_ENTRIES,
     SCRAPE_RESULT_EMPTY,
     SCRAPE_RESULT_ERROR,
     SCRAPE_RESULT_REMOVED,
@@ -46,12 +41,6 @@ log = logging.getLogger(__name__)
 EmitFn = Callable[[dict[str, Any]], Awaitable[None]] | None
 
 PipelineKind = Literal["active", "not_yet_created", "expired", "not_found", "bad_status"]
-
-STATUS_LOOKAHEAD = "lookahead"
-STATUS_PENDING_FALLBACK = "pending_fallback"
-STATUS_FALLBACK_WARMING = "fallback_warming"
-STATUS_TIMED_OUT = "timed_out"
-STATUS_EXPIRED = "expired"
 
 FRONTIER_AD_STATUS_SOURCES = frozenset({"avto.net.lookahead", "avto.net.scout"})
 BACKFILL_AD_STATUS_SOURCES = frozenset({"avto.net.backfill"})
@@ -238,7 +227,7 @@ async def record_avtonet_ad_scrape(
     else:
         log_entries = list(row.scrape_log or [])
         log_entries.append(entry)
-        row.scrape_log = log_entries
+        row.scrape_log = log_entries[-SCRAPE_LOG_MAX_ENTRIES:]
         if resolved is not None:
             row.status = merge_ad_status(row.status, resolved)
     await db.flush()
@@ -271,116 +260,6 @@ async def record_avtonet_ad_scrape_from_outcome(
     )
 
 
-async def upsert_probe(
-    db: AsyncSession,
-    ad_id: int,
-    *,
-    fetched_at: datetime,
-    http_status: int,
-    outcome: str,
-    detail: str | None = None,
-) -> None:
-    stmt = (
-        insert(AvtonetAdProbe)
-        .values(
-            ad_id=ad_id,
-            fetched_at=fetched_at,
-            http_status=http_status,
-            gtm_ad_status=None,
-            outcome=outcome,
-            detail=detail,
-        )
-        .on_conflict_do_update(
-            index_elements=[AvtonetAdProbe.ad_id],
-            set_={
-                "fetched_at": fetched_at,
-                "http_status": http_status,
-                "gtm_ad_status": None,
-                "outcome": outcome,
-                "detail": detail,
-            },
-        )
-    )
-    await db.execute(stmt)
-    await db.flush()
-
-
-async def upsert_lookahead_state(
-    db: AsyncSession,
-    ad_id: int,
-    *,
-    now: datetime,
-    last_outcome: str,
-    detail: str | None = None,
-) -> None:
-    stmt = (
-        insert(AvtonetAdState)
-        .values(
-            ad_id=ad_id,
-            status=STATUS_LOOKAHEAD,
-            last_lookahead_at=now,
-            last_outcome=last_outcome,
-            last_detail=detail,
-        )
-        .on_conflict_do_update(
-            index_elements=[AvtonetAdState.ad_id],
-            set_={
-                "status": STATUS_LOOKAHEAD,
-                "last_lookahead_at": now,
-                "last_outcome": last_outcome,
-                "last_detail": detail,
-            },
-        )
-    )
-    await db.execute(stmt)
-    await db.flush()
-
-
-async def delete_lookahead_below_ad(db: AsyncSession, before_ad_id: int) -> None:
-    await db.execute(
-        delete(AvtonetAdState).where(
-            AvtonetAdState.ad_id < before_ad_id,
-            AvtonetAdState.status == STATUS_LOOKAHEAD,
-        )
-    )
-    await db.flush()
-
-
-async def upsert_expired_state(
-    db: AsyncSession,
-    ad_id: int,
-    *,
-    now: datetime,
-    last_outcome: str,
-    detail: str | None = None,
-) -> None:
-    stmt = (
-        insert(AvtonetAdState)
-        .values(
-            ad_id=ad_id,
-            status=STATUS_EXPIRED,
-            last_lookahead_at=now,
-            first_fallback_scrape_at=None,
-            last_fallback_scrape_at=None,
-            last_outcome=last_outcome,
-            last_detail=detail,
-        )
-        .on_conflict_do_update(
-            index_elements=[AvtonetAdState.ad_id],
-            set_={
-                "status": STATUS_EXPIRED,
-                "last_lookahead_at": now,
-                "first_fallback_scrape_at": None,
-                "last_fallback_scrape_at": None,
-                "last_outcome": last_outcome,
-                "last_detail": detail,
-            },
-        )
-    )
-    await db.execute(stmt)
-    await db.flush()
-
-
 async def promote_pending_below_to_backfill(
     db: AsyncSession,
     last_working_ad_id: int,
@@ -399,22 +278,6 @@ async def promote_pending_below_to_backfill(
     return int(result.rowcount or 0)
 
 
-async def promote_lookahead_below_to_pending_fallback(
-    db: AsyncSession,
-    found_ad_id: int,
-    *,
-    now: datetime,
-) -> None:
-    await db.execute(
-        delete(AvtonetAdState).where(
-            AvtonetAdState.ad_id < found_ad_id,
-            AvtonetAdState.status == STATUS_LOOKAHEAD,
-        )
-    )
-    await promote_pending_below_to_backfill(db, found_ad_id, now=now)
-    await db.flush()
-
-
 async def activate_last_working_ad(
     db: AsyncSession,
     ad_id: int,
@@ -426,8 +289,6 @@ async def activate_last_working_ad(
 ) -> int:
     now = now or datetime.now(timezone.utc)
     promoted = await promote_pending_below_to_backfill(db, ad_id, now=now)
-    await delete_lookahead_below_ad(db, ad_id)
-    await delete_ad_state(db, ad_id)
     await meta_set_last_working(db, ad_id)
     try:
         inserted = await upsert_items(db, LISTING_SOURCE, [item])
@@ -476,14 +337,6 @@ async def finalize_scout_last_working_advance(
         return None
     kind = pipeline_kind_from_probe(result)
     oc = outcome_from_class(kind)
-    await upsert_probe(
-        db,
-        ad_id,
-        fetched_at=now,
-        http_status=result.http_status,
-        outcome=oc,
-        detail=result.detail,
-    )
     await record_avtonet_ad_scrape_from_outcome(
         db,
         ad_id,
@@ -505,20 +358,11 @@ async def finalize_scout_last_working_advance(
         )
         return kind
     if kind == "expired":
-        await upsert_expired_state(
-            db, ad_id, now=now, last_outcome=oc, detail=result.detail
-        )
-        await delete_lookahead_below_ad(db, ad_id)
         await meta_set_last_working(db, ad_id)
         log.info("avto.net scout finalize: expired ad_id=%s, advanced last_working", ad_id)
         return kind
     await meta_set_last_working(db, ad_id)
     return kind
-
-
-async def delete_ad_state(db: AsyncSession, ad_id: int) -> None:
-    await db.execute(delete(AvtonetAdState).where(AvtonetAdState.ad_id == ad_id))
-    await db.flush()
 
 
 async def emit_progress_tick(
@@ -566,14 +410,6 @@ async def persist_probe_result(
     oc = outcome_from_class(kind)
     http_st = result.http_status
 
-    await upsert_probe(
-        db,
-        ad_id,
-        fetched_at=now,
-        http_status=http_st,
-        outcome=oc,
-        detail=result.detail,
-    )
     await record_avtonet_ad_scrape_from_outcome(
         db,
         ad_id,
@@ -610,7 +446,7 @@ async def probe_ad_id(
     high_water: int = 0,
     settings: Settings | None = None,
 ) -> PipelineKind | None:
-    """Probe one ad ID; persist probe/scrape rows. Returns None after hard HTTP failure."""
+    """Probe one ad ID; persist scrape rows. Returns None after hard HTTP failure."""
     settings = settings or get_settings()
 
     for attempt in range(SCOUT_HTTP_RETRIES):
