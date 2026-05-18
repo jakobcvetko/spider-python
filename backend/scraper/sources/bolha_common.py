@@ -65,6 +65,8 @@ BACKFILL_PROMOTE_STATUSES = (AD_STATUS_PENDING, AD_STATUS_EMPTY)
 
 LOOKAHEAD_ADS = 10
 LOOKAHEAD_TIMEOUT_SECONDS = 5
+# Re-run scout when lookahead finds no new active ad for this long.
+LOOKAHEAD_SCOUT_IDLE_SECONDS = 10
 LOOKAHEAD_PROBE_TIMEOUT_SECONDS = 15.0
 # Re-scan listings / homepage occasionally so meta stays aligned with backfill or manual inserts.
 LOOKAHEAD_HIGH_WATER_REFRESH_BATCHES = 50

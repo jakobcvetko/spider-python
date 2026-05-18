@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import NoReturn
@@ -9,6 +10,7 @@ from typing import NoReturn
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import SessionLocal
 from scraper.sources.bolha_scout import run_bolha_scout
 from scraper.http_retries import httpx_get_with_retries
@@ -23,6 +25,7 @@ from scraper.sources.bolha_common import (
     LOOKAHEAD_HIGH_WATER_REFRESH_BATCHES,
     LOOKAHEAD_HOMEPAGE_REFRESH_BATCHES,
     LOOKAHEAD_PROBE_TIMEOUT_SECONDS,
+    LOOKAHEAD_SCOUT_IDLE_SECONDS,
     LOOKAHEAD_TIMEOUT_SECONDS,
     classify_probe_response,
     emit_progress_tick,
@@ -151,8 +154,11 @@ class BolhaLookaheadSource:
         high: int,
         batch_size: int,
         emit: EmitFn,
-    ) -> bool:
-        """Probe anchor+1..anchor+batch_size in parallel. Returns True if batch resolved."""
+    ) -> tuple[bool, bool]:
+        """Probe anchor+1..anchor+batch_size in parallel.
+
+        Returns ``(batch_resolved, found_active)``.
+        """
         ad_ids = [anchor + k for k in range(1, batch_size + 1)]
         slots = await self._probe_parallel(probe, ad_ids)
         slots.sort(key=lambda s: s.ad_id)
@@ -208,7 +214,7 @@ class BolhaLookaheadSource:
                     inserted,
                 )
                 await db.commit()
-                return True
+                return True, True
 
             if kind == "expired":
                 await emit_progress_tick(
@@ -229,7 +235,7 @@ class BolhaLookaheadSource:
                     slot.ad_id,
                     anchor,
                 )
-                return True
+                return True, False
 
             await emit_progress_tick(
                 emit,
@@ -242,7 +248,37 @@ class BolhaLookaheadSource:
                 gtm_ad_status=gtm,
             )
 
-        return False
+        return False, False
+
+    async def _run_scout_if_idle(
+        self,
+        db: AsyncSession,
+        client: httpx.AsyncClient,
+        emit: EmitFn,
+        *,
+        last_active_at: float,
+        scout_idle_seconds: float,
+    ) -> float:
+        idle_for = time.monotonic() - last_active_at
+        if idle_for < scout_idle_seconds:
+            log.debug(
+                "bolha lookahead: %.0fs since last active (scout at %.0fs)",
+                idle_for,
+                scout_idle_seconds,
+            )
+            return last_active_at
+        log.info(
+            "bolha lookahead: no new active ad for %.0fs (>= %.0fs), running scout",
+            idle_for,
+            scout_idle_seconds,
+        )
+        try:
+            await run_bolha_scout(db, client, emit)
+        except RuntimeError:
+            log.exception(
+                "bolha lookahead: idle scout failed; continuing with stored anchor"
+            )
+        return time.monotonic()
 
     async def fetch(
         self,
@@ -250,10 +286,21 @@ class BolhaLookaheadSource:
         emit: EmitFn = None,
     ) -> NoReturn:
         """Runs until process exit (worker uses no interval job for this source)."""
+        settings = get_settings()
+        raw_idle = settings.bolha_lookahead_scout_idle_seconds
+        scout_idle_seconds = (
+            raw_idle if raw_idle > 0 else LOOKAHEAD_SCOUT_IDLE_SECONDS
+        )
         probe = make_probe_client(client, timeout_seconds=LOOKAHEAD_PROBE_TIMEOUT_SECONDS)
         batch_size = LOOKAHEAD_ADS
         try:
             async with SessionLocal() as db:
+                log.info(
+                    "bolha lookahead: scout idle threshold=%.0fs "
+                    "(BOLHA_LOOKAHEAD_SCOUT_IDLE_SECONDS=%s)",
+                    scout_idle_seconds,
+                    raw_idle,
+                )
                 log.info("bolha lookahead: running initial scout")
                 try:
                     await run_bolha_scout(db, client, emit)
@@ -262,6 +309,7 @@ class BolhaLookaheadSource:
                         "bolha lookahead: initial scout failed; "
                         "continuing with stored anchor"
                     )
+                last_active_at = time.monotonic()
 
                 while True:
                     meta = await get_meta(db)
@@ -280,7 +328,7 @@ class BolhaLookaheadSource:
                         high,
                     )
 
-                    batch_resolved = await self._process_probe_batch(
+                    batch_resolved, found_active = await self._process_probe_batch(
                         db,
                         probe,
                         anchor=anchor,
@@ -288,6 +336,17 @@ class BolhaLookaheadSource:
                         batch_size=batch_size,
                         emit=emit,
                     )
+
+                    if found_active:
+                        last_active_at = time.monotonic()
+                    else:
+                        last_active_at = await self._run_scout_if_idle(
+                            db,
+                            client,
+                            emit,
+                            last_active_at=last_active_at,
+                            scout_idle_seconds=scout_idle_seconds,
+                        )
 
                     if not batch_resolved:
                         await db.commit()

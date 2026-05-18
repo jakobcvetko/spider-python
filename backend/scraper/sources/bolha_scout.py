@@ -121,28 +121,25 @@ class BolhaScoutSource:
         db_max = await max_numeric_listing_id(db)
         seed = max(hp_max, db_max, meta_anchor)
         high_water = seed
-        frontier_at_meta = meta_anchor >= max(db_max, hp_max)
 
         await meta_begin_fetch(db, high=high_water)
 
         state = _ScoutState(lo=seed, hi=seed + 1, high_water=high_water)
         log.info(
-            "bolha scout: seed lo=%s (homepage=%s db=%s meta=%s frontier_at_meta=%s)",
+            "bolha scout: seed lo=%s (homepage=%s db=%s meta=%s)",
             seed,
             hp_max,
             db_max,
             meta_anchor,
-            frontier_at_meta,
         )
         log.debug(
             "bolha scout: start meta_anchor=%s db_max=%s hp_max=%s seed=%s "
-            "high_water=%s frontier_at_meta=%s max_probes=%s window_size=%s",
+            "high_water=%s max_probes=%s window_size=%s",
             meta_anchor,
             db_max,
             hp_max,
             seed,
             high_water,
-            frontier_at_meta,
             SCOUT_MAX_PROBES,
             LOOKAHEAD_ADS,
         )
@@ -194,64 +191,49 @@ class BolhaScoutSource:
                 state.probe_count,
             )
 
-        if (
-            frontier_at_meta
-            and seed == meta_anchor
-            and is_known_probe_kind(kind)
-        ):
-            log.info(
-                "bolha scout: at frontier meta=%s (db=%s hp=%s), "
-                "skipping gallop/refine/binary (%s probes)",
-                meta_anchor,
-                db_max,
-                hp_max,
-                state.probe_count,
-            )
-            new_anchor = meta_anchor
-        else:
-            log.info(
-                "bolha scout: phase=gallop enter lo=%s hi=%s probes=%s",
-                state.lo,
-                state.hi,
-                state.probe_count,
-            )
-            if not await self._gallop_up(db, probe, emit, state):
-                await db.commit()
-                raise RuntimeError("bolha scout: gallop exceeded safety limits")
+        log.info(
+            "bolha scout: phase=gallop enter lo=%s hi=%s probes=%s",
+            state.lo,
+            state.hi,
+            state.probe_count,
+        )
+        if not await self._gallop_up(db, probe, emit, state):
+            await db.commit()
+            raise RuntimeError("bolha scout: gallop exceeded safety limits")
 
-            log.info(
-                "bolha scout: phase=refine enter lo=%s hi=%s span=%s probes=%s",
-                state.lo,
-                state.hi,
-                state.hi - state.lo,
-                state.probe_count,
-            )
-            await self._refine_up(db, probe, emit, state)
-            log.info(
-                "bolha scout: phase=refine done lo=%s hi=%s probes=%s",
-                state.lo,
-                state.hi,
-                state.probe_count,
-            )
+        log.info(
+            "bolha scout: phase=refine enter lo=%s hi=%s span=%s probes=%s",
+            state.lo,
+            state.hi,
+            state.hi - state.lo,
+            state.probe_count,
+        )
+        await self._refine_up(db, probe, emit, state)
+        log.info(
+            "bolha scout: phase=refine done lo=%s hi=%s probes=%s",
+            state.lo,
+            state.hi,
+            state.probe_count,
+        )
 
-            log.info(
-                "bolha scout: phase=binary_search_bracket enter lo=%s hi=%s span=%s probes=%s",
-                state.lo,
-                state.hi,
-                state.hi - state.lo,
-                state.probe_count,
-            )
-            await self._binary_search_known(
-                db, probe, emit, state, lo=state.lo, hi=state.hi, phase="bracket"
-            )
-            log.info(
-                "bolha scout: phase=binary_search_bracket done lo=%s hi=%s probes=%s",
-                state.lo,
-                state.hi,
-                state.probe_count,
-            )
+        log.info(
+            "bolha scout: phase=binary_search_bracket enter lo=%s hi=%s span=%s probes=%s",
+            state.lo,
+            state.hi,
+            state.hi - state.lo,
+            state.probe_count,
+        )
+        await self._binary_search_known(
+            db, probe, emit, state, lo=state.lo, hi=state.hi, phase="bracket"
+        )
+        log.info(
+            "bolha scout: phase=binary_search_bracket done lo=%s hi=%s probes=%s",
+            state.lo,
+            state.hi,
+            state.probe_count,
+        )
 
-            new_anchor = state.lo
+        new_anchor = state.lo
         log.debug(
             "bolha scout: search complete new_anchor=%s meta_anchor=%s "
             "gap_above_meta=%s will_finalize_advance=%s probes=%s",

@@ -19,7 +19,6 @@ from scraper.sources.avto_net_common import (
     SCOUT_PROBE_DELAY_SECONDS,
     LOOKAHEAD_ADS,
     SCOUT_PROBE_WINDOW_RADIUS,
-    SCOUT_REFINE_STEP,
 )
 from scraper.sources.avto_net_probe import probe_ad_id as fetch_probe
 from scraper.sources.avtonet_pipeline import (
@@ -121,7 +120,6 @@ class AvtoNetScoutSource:
             await db.commit()
             raise RuntimeError("avto.net scout: gallop exceeded safety limits")
 
-        await self._refine_up(db, client, emit, state)
         await self._binary_search_known(
             db, client, emit, state, lo=state.lo, hi=state.hi
         )
@@ -295,26 +293,6 @@ class AvtoNetScoutSource:
                 candidate,
             )
             return True
-
-    async def _refine_up(
-        self,
-        db: AsyncSession,
-        client: httpx.AsyncClient,
-        emit: EmitFn,
-        state: _ScoutState,
-    ) -> None:
-        while state.hi - state.lo > SCOUT_REFINE_STEP:
-            candidate = state.lo + SCOUT_REFINE_STEP
-            highest_known, exhausted = await self._probe_window(
-                db, client, emit, state, candidate
-            )
-            if exhausted:
-                return
-            if highest_known is not None:
-                state.lo = highest_known
-            else:
-                state.hi = candidate + SCOUT_PROBE_WINDOW_RADIUS
-                return
 
     async def _binary_search_known(
         self,

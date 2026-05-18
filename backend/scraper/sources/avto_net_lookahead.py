@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import logging
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import NoReturn
@@ -21,6 +22,7 @@ from scraper.sources.avto_net_scout import run_avtonet_scout
 from scraper.sources.avtonet_pipeline import (
     EmitFn,
     LOOKAHEAD_HIGH_WATER_REFRESH_BATCHES,
+    LOOKAHEAD_SCOUT_IDLE_SECONDS,
     LOOKAHEAD_TIMEOUT_SECONDS,
     activate_last_working_ad,
     emit_progress_tick,
@@ -140,8 +142,11 @@ class AvtoNetLookaheadSource:
         batch_size: int,
         settings: Settings,
         emit: EmitFn,
-    ) -> bool:
-        """Probe anchor+1..anchor+batch_size in parallel. Returns True if batch resolved."""
+    ) -> tuple[bool, bool]:
+        """Probe anchor+1..anchor+batch_size in parallel.
+
+        Returns ``(batch_resolved, found_active)``.
+        """
         ad_ids = [anchor + k for k in range(1, batch_size + 1)]
         slots = await self._probe_parallel(
             client, ad_ids, settings=settings, emit=emit
@@ -198,7 +203,7 @@ class AvtoNetLookaheadSource:
                     inserted,
                 )
                 await db.commit()
-                return True
+                return True, True
 
             if kind == "expired":
                 await emit_progress_tick(
@@ -218,7 +223,7 @@ class AvtoNetLookaheadSource:
                     slot.ad_id,
                     anchor,
                 )
-                return True
+                return True, False
 
             await emit_progress_tick(
                 emit,
@@ -230,7 +235,32 @@ class AvtoNetLookaheadSource:
                 http_status=result.http_status,
             )
 
-        return False
+        return False, False
+
+    async def _run_scout_if_idle(
+        self,
+        db: AsyncSession,
+        client: httpx.AsyncClient,
+        emit: EmitFn,
+        *,
+        last_active_at: float,
+        scout_idle_seconds: float,
+    ) -> float:
+        idle_for = time.monotonic() - last_active_at
+        if idle_for < scout_idle_seconds:
+            return last_active_at
+        log.info(
+            "avto.net lookahead: no new active ad for %.0fs (>= %.0fs), running scout",
+            idle_for,
+            scout_idle_seconds,
+        )
+        try:
+            await run_avtonet_scout(db, client, emit)
+        except RuntimeError:
+            log.exception(
+                "avto.net lookahead: idle scout failed; continuing with stored anchor"
+            )
+        return time.monotonic()
 
     async def fetch(
         self,
@@ -239,6 +269,10 @@ class AvtoNetLookaheadSource:
     ) -> NoReturn:
         settings = get_settings()
         batch_size = settings.avtonet_lookahead_batch_size or LOOKAHEAD_ADS
+        scout_idle_seconds = (
+            settings.avtonet_lookahead_scout_idle_seconds
+            or LOOKAHEAD_SCOUT_IDLE_SECONDS
+        )
         try:
             async with SessionLocal() as db:
                 log.info("avto.net lookahead: running initial scout")
@@ -249,6 +283,7 @@ class AvtoNetLookaheadSource:
                         "avto.net lookahead: initial scout failed; "
                         "continuing with stored anchor"
                     )
+                last_active_at = time.monotonic()
 
                 while True:
                     meta = await get_meta(db)
@@ -265,7 +300,7 @@ class AvtoNetLookaheadSource:
                         high,
                     )
 
-                    batch_resolved = await self._process_probe_batch(
+                    batch_resolved, found_active = await self._process_probe_batch(
                         db,
                         client,
                         anchor=anchor,
@@ -274,6 +309,17 @@ class AvtoNetLookaheadSource:
                         settings=settings,
                         emit=emit,
                     )
+
+                    if found_active:
+                        last_active_at = time.monotonic()
+                    else:
+                        last_active_at = await self._run_scout_if_idle(
+                            db,
+                            client,
+                            emit,
+                            last_active_at=last_active_at,
+                            scout_idle_seconds=scout_idle_seconds,
+                        )
 
                     if not batch_resolved:
                         await db.commit()
