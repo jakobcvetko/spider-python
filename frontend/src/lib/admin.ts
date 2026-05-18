@@ -87,11 +87,59 @@ export type AdminListingMatch = {
   matched_at: string;
 };
 
+export type ServerMemory = {
+  total_bytes: number;
+  available_bytes: number;
+  used_bytes: number;
+  percent: number;
+  scope: string;
+};
+
+export type ServerCpu = {
+  percent: number;
+  count: number;
+  load_avg_1m: number | null;
+  load_avg_5m: number | null;
+  load_avg_15m: number | null;
+};
+
+export type ServerDisk = {
+  path: string;
+  mountpoint: string;
+  total_bytes: number;
+  used_bytes: number;
+  free_bytes: number;
+  percent: number;
+};
+
+export type ServerTableCount = {
+  table: string;
+  count: number;
+};
+
+export type ServerDatabase = {
+  size_bytes: number;
+  table_counts: ServerTableCount[];
+};
+
+export type ServerStats = {
+  collected_at: string;
+  hostname: string;
+  platform: string;
+  uptime_seconds: number;
+  memory: ServerMemory;
+  swap: ServerMemory | null;
+  cpu: ServerCpu;
+  disks: ServerDisk[];
+  database: ServerDatabase;
+};
+
 export const adminKeys = {
   users: ["admin", "users"] as const,
   userActivities: (userId: string) =>
     ["admin", "users", userId, "activities"] as const,
   scraperStatus: ["admin", "scraper", "status"] as const,
+  serverStats: ["admin", "server-stats"] as const,
   listingsRoot: ["admin", "listings"] as const,
   bolhaAds: ["admin", "bolha", "ads"] as const,
   avtonetAds: ["admin", "avtonet", "ads"] as const,
@@ -997,6 +1045,18 @@ export function useScraperStatus(enabled: boolean) {
       return data;
     },
     enabled,
+  });
+}
+
+export function useServerStats(enabled: boolean) {
+  return useQuery<ServerStats>({
+    queryKey: adminKeys.serverStats,
+    queryFn: async () => {
+      const { data } = await api.get<ServerStats>("/admin/server-stats");
+      return data;
+    },
+    enabled,
+    refetchInterval: 30_000,
   });
 }
 

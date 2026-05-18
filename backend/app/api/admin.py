@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.avtonet_ads_serialize import avtonet_ad_to_out as _avtonet_ad_to_out
@@ -43,8 +43,12 @@ from app.schemas.admin import (
     RunSourceBody,
     RunSourceResponse,
     ScraperStatus,
+    ServerDatabaseOut,
+    ServerStatsOut,
+    ServerTableCountOut,
     TriggerResponse,
 )
+from app.server_stats import collect_server_stats_sync
 from app.scraper_events import get_event_bus, make_event
 from app.telegram.notify import notify_new_matches
 from matcher.match import AVTONET_SOURCE, BOLHA_SOURCE, match_listing
@@ -243,6 +247,36 @@ async def list_user_activities(
         .limit(limit)
     )
     return list(result.scalars().all())
+
+
+async def _database_stats(db: AsyncSession) -> ServerDatabaseOut:
+    size_bytes = int(
+        await db.scalar(text("SELECT pg_database_size(current_database())")) or 0
+    )
+    table_models: list[tuple[str, type]] = [
+        ("users", User),
+        ("listings", Listing),
+        ("bolha_ads", BolhaAd),
+        ("avtonet_ads", AvtonetAd),
+        ("scraper_matches", ScraperMatch),
+    ]
+    table_counts: list[ServerTableCountOut] = []
+    for table_name, model in table_models:
+        count = await db.scalar(select(func.count()).select_from(model))
+        table_counts.append(
+            ServerTableCountOut(table=table_name, count=int(count or 0))
+        )
+    return ServerDatabaseOut(size_bytes=size_bytes, table_counts=table_counts)
+
+
+@router.get("/server-stats", response_model=ServerStatsOut)
+async def server_stats(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> ServerStatsOut:
+    payload = await asyncio.to_thread(collect_server_stats_sync)
+    database = await _database_stats(db)
+    return ServerStatsOut(**payload, database=database)
 
 
 @router.get("/scraper/status", response_model=ScraperStatus)

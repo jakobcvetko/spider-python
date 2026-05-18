@@ -36,6 +36,9 @@ services:
   api:
     <<: *app
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      # Read-only host root so /api/admin/server-stats can report VPS disk & memory.
+      - /:/hostfs:ro
     healthcheck:
       test:
         [

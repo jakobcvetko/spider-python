@@ -11,6 +11,7 @@ import AdminAvtonetListingsPage from './pages/AdminAvtonetListingsPage'
 import AdminBolhaHttpLogsPage from './pages/AdminBolhaHttpLogsPage'
 import AdminBolhaListingsPage from './pages/AdminBolhaListingsPage'
 import AdminListingsPage from './pages/AdminListingsPage'
+import AdminServerStatsPage from './pages/AdminServerStatsPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import HomePage from './pages/HomePage'
 import LandingPage from './pages/LandingPage'
@@ -46,6 +47,7 @@ export default function App() {
         }
       >
         <Route index element={<AdminPage />} />
+        <Route path="server-stats" element={<AdminServerStatsPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="listings" element={<AdminListingsPage />} />
         <Route path="bolha" element={<AdminBolhaPage />} />

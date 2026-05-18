@@ -195,3 +195,50 @@ class BolhaAdStateOut(BaseModel):
     last_detail: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ServerMemoryOut(BaseModel):
+    total_bytes: int
+    available_bytes: int
+    used_bytes: int
+    percent: float
+    scope: str
+
+
+class ServerCpuOut(BaseModel):
+    percent: float
+    count: int
+    load_avg_1m: float | None
+    load_avg_5m: float | None
+    load_avg_15m: float | None
+
+
+class ServerDiskOut(BaseModel):
+    path: str
+    mountpoint: str
+    total_bytes: int
+    used_bytes: int
+    free_bytes: int
+    percent: float
+
+
+class ServerTableCountOut(BaseModel):
+    table: str
+    count: int
+
+
+class ServerDatabaseOut(BaseModel):
+    size_bytes: int
+    table_counts: list[ServerTableCountOut]
+
+
+class ServerStatsOut(BaseModel):
+    collected_at: datetime
+    hostname: str
+    platform: str
+    uptime_seconds: float
+    memory: ServerMemoryOut
+    swap: ServerMemoryOut | None
+    cpu: ServerCpuOut
+    disks: list[ServerDiskOut]
+    database: ServerDatabaseOut

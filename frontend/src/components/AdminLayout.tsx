@@ -12,6 +12,7 @@ function isBolhaPath(pathname: string) {
 
 const ADMIN_NAV: NavItem[] = [
   { type: 'link', to: '/admin', label: 'Home', end: true },
+  { type: 'link', to: '/admin/server-stats', label: 'Server' },
   { type: 'link', to: '/admin/users', label: 'Users' },
   { type: 'link', to: '/admin/listings', label: 'Listings' },
   {
