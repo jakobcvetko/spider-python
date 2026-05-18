@@ -45,11 +45,11 @@ class Settings(BaseSettings):
         alias="AVTONET_PROBE_DELAY_SECONDS",
     )
     bolha_lookahead_scout_idle_seconds: float = Field(
-        default=10.0,
+        default=300.0,
         alias="BOLHA_LOOKAHEAD_SCOUT_IDLE_SECONDS",
     )
     avtonet_lookahead_scout_idle_seconds: float = Field(
-        default=10.0,
+        default=300.0,
         alias="AVTONET_LOOKAHEAD_SCOUT_IDLE_SECONDS",
     )
     scraperapi_api_key: str | None = Field(default=None, alias="SCRAPERAPI_API_KEY")
