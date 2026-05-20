@@ -9,6 +9,10 @@
   color-scheme: light;
 }
 
+html {
+  background-color: var(--color-zinc-950);
+}
+
 html, body, #root {
   height: 100%;
 }
