@@ -1,0 +1,135 @@
+# Self-hosted n8n on the Hetzner prod host (alongside spider compose).
+# Public HTTPS via Caddy → n8n:5678 (N8N_DOMAIN in server .env).
+# Queue mode + worker for agent / webhook workloads.
+#
+#   bash deploy/n8n-prod.sh
+
+name: spider-n8n
+
+x-n8n-env: &n8n-env
+  DB_TYPE: postgresdb
+  DB_POSTGRESDB_HOST: n8n-db
+  DB_POSTGRESDB_PORT: "5432"
+  DB_POSTGRESDB_DATABASE: ${N8N_PG_DATABASE:-n8n}
+  DB_POSTGRESDB_USER: ${N8N_PG_USER:-n8n}
+  DB_POSTGRESDB_PASSWORD: ${N8N_PG_PASSWORD}
+  N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+  N8N_USER_MANAGEMENT_JWT_SECRET: ${N8N_JWT_SECRET}
+  GENERIC_TIMEZONE: ${N8N_TIMEZONE:-Europe/Ljubljana}
+  TZ: ${N8N_TIMEZONE:-Europe/Ljubljana}
+  NODE_ENV: production
+  EXECUTIONS_MODE: queue
+  QUEUE_BULL_REDIS_HOST: n8n-redis
+  QUEUE_BULL_REDIS_PORT: "6379"
+  OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: "true"
+  N8N_COMMUNITY_PACKAGES_ENABLED: "true"
+  N8N_COMMUNITY_PACKAGES_MANAGED_BY_ENV: "true"
+  N8N_COMMUNITY_PACKAGES: '[{"name":"@linkedpromo/n8n-nodes-twenty"}]'
+  N8N_REINSTALL_MISSING_PACKAGES: "true"
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:${N8N_TAG:-latest}
+    container_name: n8n
+    restart: unless-stopped
+    mem_limit: 768m
+    environment:
+      <<: *n8n-env
+      N8N_HOST: ${N8N_HOST}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL}
+      N8N_PROXY_HOPS: "1"
+      N8N_SECURE_COOKIE: "true"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "168"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      n8n-db:
+        condition: service_healthy
+      n8n-redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:5678/healthz >/dev/null 2>&1 || exit 1",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    networks:
+      n8n_internal: {}
+      spider_default:
+        aliases:
+          - n8n
+
+  n8n-worker:
+    image: docker.n8n.io/n8nio/n8n:${N8N_TAG:-latest}
+    restart: unless-stopped
+    mem_limit: 768m
+    command: ["worker"]
+    environment:
+      <<: *n8n-env
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      n8n-db:
+        condition: service_healthy
+      n8n-redis:
+        condition: service_healthy
+      n8n:
+        condition: service_healthy
+    networks:
+      - n8n_internal
+
+  n8n-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      POSTGRES_USER: ${N8N_PG_USER:-n8n}
+      POSTGRES_PASSWORD: ${N8N_PG_PASSWORD}
+      POSTGRES_DB: ${N8N_PG_DATABASE:-n8n}
+    volumes:
+      - n8n_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${N8N_PG_USER:-n8n} -d ${N8N_PG_DATABASE:-n8n}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - n8n_internal
+
+  n8n-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - n8n_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - n8n_internal
+
+networks:
+  n8n_internal:
+    driver: bridge
+  spider_default:
+    external: true
+    name: spider_default
+
+volumes:
+  n8n_data:
+  n8n_db_data:
+  n8n_redis_data:

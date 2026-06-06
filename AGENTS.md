@@ -8,7 +8,7 @@ For human-facing setup instructions, see [`README.md`](./README.md). This file
 focuses on what an agent needs to know to work effectively in the repo.
 
 **Production / deploy / logs:** see [§9 Production server, CI/CD, and operations](#9-production-server-cicd-and-operations)
-(`ssh spider.si`, `/opt/spider`, `new.spider.si`, GitHub Actions → Hetzner).
+(`ssh spider.si`, `/opt/spider`, `new.spider.si`, `crm.spider.si`, `n8n.spider.si`, GitHub Actions → Hetzner).
 
 **DNS (Cloudflare):** API token in repo-root `.env` — [§9.6](#96-cloudflare-dns-spidersi); read with
 `grep CLOUDFLARE_API_TOKEN .env` (never commit or log the value).
@@ -72,9 +72,11 @@ spider-python/
 │       └── components/            # ProtectedRoute, ui.tsx primitives
 ├── scripts/dev.sh                 # spawn+supervise be+fe with prefixed logs
 ├── docker-compose.yml             # dev Postgres only (port 5435)
-├── docker-compose.prod.yml        # prod stack (api + workers + db + caddy)
+├── docker-compose.prod.yml        # prod stack (api + workers + db + caddy + portainer)
+├── docker-compose.twenty.prod.yml # Twenty CRM (crm.spider.si) — separate compose
+├── docker-compose.n8n.prod.yml    # n8n (n8n.spider.si) — separate compose
 ├── Dockerfile                     # multi-stage: frontend build + backend image
-├── deploy/                        # Caddyfile, env.example, bootstrap.sh, README
+├── deploy/                        # Caddyfile, env.example, bootstrap.sh, *-prod.sh, README
 ├── .github/workflows/deploy.yml   # push main/master → GHCR → Hetzner SSH
 ├── Makefile                       # canonical entry point — see `make help`
 └── .env.example                   # copy to .env
@@ -382,6 +384,8 @@ parallel setting.
 | Dev orchestration | `Makefile`, `scripts/dev.sh` |
 | Dev DB | `docker-compose.yml` (host port `5435`), `make db-shell` |
 | Prod deploy docs | `deploy/README.md`, `docker-compose.prod.yml` |
+| Twenty CRM (prod) | https://crm.spider.si — [§9.7](#97-co-hosted-services-same-vps) |
+| n8n (prod) | https://n8n.spider.si — [§9.7](#97-co-hosted-services-same-vps) |
 | Prod SSH / logs | [§9](#9-production-server-cicd-and-operations) |
 | Cloudflare DNS token | Repo `.env` → `CLOUDFLARE_API_TOKEN`; [§9.6](#96-cloudflare-dns-spidersi) |
 
@@ -401,6 +405,9 @@ Read this when debugging prod, deploying, or checking scraper health.
 | SSH (CI / deploy user) | `ssh deploy@46.224.37.205` — key in GitHub secret `DEPLOY_SSH_KEY` |
 | App directory | `/opt/spider` (`docker-compose.prod.yml`, `.env`, `deploy/`) |
 | Public URL (staging) | **https://new.spider.si** — DNS **A** record must point to `46.224.37.205` |
+| Twenty CRM | **https://crm.spider.si** — self-hosted [Twenty](https://twenty.com); compose `docker-compose.twenty.prod.yml` |
+| n8n | **https://n8n.spider.si** — self-hosted workflow automation; compose `docker-compose.n8n.prod.yml` |
+| Portainer | **https://admin-dash.spider.si** — Docker UI (in main spider compose) |
 | Production URL (later) | `https://spider.si` — switch `DOMAIN` / `CORS_ORIGINS` in `/opt/spider/.env` when ready |
 | Docker image | `ghcr.io/jakobcvetko/spider-python:latest` (and `:<git-sha>` per deploy) |
 | GitHub repo | `jakobcvetko/spider-python` |
@@ -413,19 +420,25 @@ Server secrets live in `/opt/spider/.env` only (never commit). Includes
 ### 9.2 How production runs
 
 ```
-Internet → Caddy (:443) → api (uvicorn :8000, serves React from backend/public)
+Internet → Caddy (:443) ─┬→ api (uvicorn :8000, React SPA + /api/*)
+                         ├→ twenty-server:3000  (crm.spider.si)
+                         ├→ n8n:5678            (n8n.spider.si)
+                         └→ portainer:9000      (admin-dash.spider.si)
                               ↓
-                         Postgres (db)
+                         Postgres (db) — Spider only
                               ↑
          worker-lookahead | worker-backfill | worker-matcher
 ```
+
+Twenty and n8n run in **separate compose projects** but join the `spider_default`
+Docker network so Caddy can reverse-proxy them. See [§9.7](#97-co-hosted-services-same-vps).
 
 - **api** — `uvicorn app.main:app`; static SPA + `/api/*`; `scraper_events` LISTEN for admin WS.
 - **worker-lookahead** — `python -m scraper.worker --sources bolha.lookahead`; frontier probe via Bolha iAPI; updates `bolha_ads`, creates `listings`, enqueues matcher.
 - **worker-backfill** — `--sources bolha.backfill`; processes `bolha_ads` rows with `status = backfill`.
 - **worker-matcher** — `python -m matcher.worker`; LISTEN `matcher_jobs`.
 - **db** — Postgres 16, volume `spider_spider_pg_data`.
-- **caddy** — TLS for `$DOMAIN` from `.env`.
+- **caddy** — TLS for `$DOMAIN`, `$TWENTY_DOMAIN`, `$N8N_DOMAIN`, `$PORTAINER_DOMAIN` (`deploy/Caddyfile`).
 
 **Important:** Run migrations **after** deploy, not only on api start. CI runs:
 `docker compose … run --rm --no-deps api alembic upgrade head`.
@@ -441,7 +454,7 @@ Workflow: `.github/workflows/deploy.yml`
 **Steps:**
 1. Build `Dockerfile` (npm build → `backend/public`, `uv sync`).
 2. Push to `ghcr.io/jakobcvetko/spider-python:latest` and `:<commit-sha>`.
-3. SCP `docker-compose.prod.yml` + `deploy/` → `$DEPLOY_PATH` on server.
+3. SCP `docker-compose.prod.yml`, `docker-compose.twenty.prod.yml`, `docker-compose.n8n.prod.yml`, `docker-compose.firecrawl.prod.yml`, + `deploy/` → `$DEPLOY_PATH` on server.
 4. SSH as `deploy`: `docker login ghcr.io` → `compose pull` → `up -d` → `alembic upgrade head`.
 
 **Required GitHub Actions secrets:**
@@ -621,7 +634,54 @@ certs for `$DOMAIN` in `/opt/spider/.env`. Check: `dig +short new.spider.si A`.
 | Name | Type | Content | Notes |
 |------|------|---------|--------|
 | `new` | A | `46.224.37.205` | Staging (`new.spider.si`) |
+| `crm` | A | `46.224.37.205` | Twenty CRM (`crm.spider.si`) |
+| `n8n` | A | `46.224.37.205` | n8n (`n8n.spider.si`) |
+| `admin-dash` | A | `46.224.37.205` | Portainer (`admin-dash.spider.si`) |
 | `@` | A | `46.224.37.205` | When cutting over apex `spider.si` |
 
 Legacy apex may still point elsewhere until you change it — confirm with
 `dig +short spider.si A` before switching production traffic.
+
+### 9.7 Co-hosted services (same VPS)
+
+The Hetzner host runs Spider plus optional tooling on the same Caddy instance.
+Each optional stack has its own Postgres (not the Spider `db`).
+
+| Service | Public URL | Compose file | First-time / upgrade |
+|---------|------------|--------------|----------------------|
+| Spider app | https://new.spider.si | `docker-compose.prod.yml` | CI on push to `main` |
+| **Twenty CRM** | **https://crm.spider.si** | `docker-compose.twenty.prod.yml` | `bash deploy/twenty-prod.sh` |
+| **n8n** | **https://n8n.spider.si** | `docker-compose.n8n.prod.yml` | `bash deploy/n8n-prod.sh` |
+| Portainer | https://admin-dash.spider.si | in main compose | `docker compose … up -d` |
+| Firecrawl | internal (`firecrawl-api:3002`) | `docker-compose.firecrawl.prod.yml` | `bash deploy/firecrawl-prod.sh` |
+
+CI copies the Twenty/n8n compose files and `deploy/*-prod.sh` scripts but does
+**not** start those stacks — run the scripts on the VPS after changing env or images.
+
+**Required `/opt/spider/.env` vars** (see `deploy/env.example`):
+
+- Twenty: `TWENTY_DOMAIN`, `TWENTY_SERVER_URL`, `TWENTY_PG_PASSWORD`, `TWENTY_ENCRYPTION_KEY`
+- n8n: `N8N_DOMAIN`, `N8N_HOST`, `N8N_WEBHOOK_URL`, `N8N_PG_PASSWORD`, `N8N_ENCRYPTION_KEY`, `N8N_JWT_SECRET`
+
+**Twenty ↔ n8n integration:** n8n ships with the `@linkedpromo/n8n-nodes-twenty`
+community node (see `docker-compose.n8n.prod.yml`). In the n8n UI, Twenty
+credentials use API URL **`https://crm.spider.si`** (no `/rest` suffix). Create
+the API key in Twenty → Settings → Developers → API & Webhooks.
+
+**Status / logs**
+
+```bash
+ssh spider.si 'cd /opt/spider && docker compose -f docker-compose.twenty.prod.yml ps'
+ssh spider.si 'cd /opt/spider && docker compose -f docker-compose.n8n.prod.yml ps'
+ssh spider.si 'cd /opt/spider && docker compose -f docker-compose.twenty.prod.yml logs -f twenty-server'
+ssh spider.si 'cd /opt/spider && docker compose -f docker-compose.n8n.prod.yml logs -f n8n'
+```
+
+**Health checks**
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' https://crm.spider.si/healthz
+curl -sS -o /dev/null -w '%{http_code}\n' https://n8n.spider.si/healthz
+```
+
+Both deploy scripts recreate Caddy after the stack is healthy so new domains get TLS.

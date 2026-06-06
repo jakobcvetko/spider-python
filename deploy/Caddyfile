@@ -1,4 +1,4 @@
-# Requires DOMAIN and PORTAINER_DOMAIN in server .env (DNS A/AAAA → this host).
+# Requires DOMAIN, PORTAINER_DOMAIN, TWENTY_DOMAIN, N8N_DOMAIN in server .env (DNS → this host).
 # DOMAIN may list multiple hosts separated by comma+space, e.g. spider.si, new.spider.si
 {
 	email {$ACME_EMAIL}
@@ -10,4 +10,12 @@
 
 {$PORTAINER_DOMAIN} {
 	reverse_proxy portainer:9000
+}
+
+{$TWENTY_DOMAIN} {
+	reverse_proxy twenty-server:3000
+}
+
+{$N8N_DOMAIN} {
+	reverse_proxy n8n:5678
 }

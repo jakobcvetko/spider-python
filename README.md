@@ -103,15 +103,19 @@ OpenAPI docs available at <http://127.0.0.1:8000/docs> when the backend is runni
 ## Production
 
 Staging runs on a **Hetzner VPS** at `46.224.37.205`, served at **https://new.spider.si**
-(when DNS points there). Later cutover to `spider.si`.
+(when DNS points there). Later cutover to `spider.si`. The same host also runs
+**Twenty CRM** (`https://crm.spider.si`) and **n8n** (`https://n8n.spider.si`) as
+separate Docker Compose stacks behind the shared Caddy reverse proxy.
 
 | What | How |
 |------|-----|
 | SSH | `ssh spider.si` (see `~/.ssh/config` — host `46.224.37.205`, user `root`) |
 | App on server | `/opt/spider` — `docker compose -f docker-compose.prod.yml …` |
+| Twenty CRM | `docker-compose.twenty.prod.yml` — `bash deploy/twenty-prod.sh` on VPS |
+| n8n | `docker-compose.n8n.prod.yml` — `bash deploy/n8n-prod.sh` on VPS |
 | Deploy | Push to `main` / `master` → GitHub Actions builds image → GHCR → SSH deploy |
 | Full ops guide | [`deploy/README.md`](./deploy/README.md) |
-| Agent / ops cheat sheet | [`AGENTS.md` §9](./AGENTS.md#9-production-server-cicd-and-operations) |
+| Agent / ops cheat sheet | [`AGENTS.md` §9](./AGENTS.md#9-production-server-cicd-and-operations) (§9.7 for Twenty/n8n) |
 
 **Quick checks**
 

@@ -1,0 +1,111 @@
+# Self-hosted Twenty CRM on the Hetzner prod host (alongside spider compose).
+# Public HTTPS via Caddy → twenty-server:3000 (TWENTY_DOMAIN in server .env).
+#
+#   bash deploy/twenty-prod.sh
+
+name: spider-twenty
+
+services:
+  twenty-server:
+    image: twentycrm/twenty:${TWENTY_TAG:-latest}
+    container_name: twenty-server
+    restart: unless-stopped
+    mem_limit: 768m
+    volumes:
+      - twenty_server_data:/app/packages/twenty-server/.local-storage
+    environment:
+      NODE_PORT: "3000"
+      PG_DATABASE_URL: postgres://${TWENTY_PG_USER:-twenty}:${TWENTY_PG_PASSWORD}@twenty-db:5432/${TWENTY_PG_DATABASE:-twenty}
+      SERVER_URL: ${TWENTY_SERVER_URL}
+      REDIS_URL: redis://twenty-redis:6379
+      DISABLE_DB_MIGRATIONS: ${TWENTY_DISABLE_DB_MIGRATIONS:-false}
+      DISABLE_CRON_JOBS_REGISTRATION: ${TWENTY_DISABLE_CRON_JOBS_REGISTRATION:-false}
+      STORAGE_TYPE: ${TWENTY_STORAGE_TYPE:-local}
+      ENCRYPTION_KEY: ${TWENTY_ENCRYPTION_KEY}
+      APP_SECRET: ${TWENTY_APP_SECRET:-}
+    depends_on:
+      twenty-db:
+        condition: service_healthy
+      twenty-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      twenty_internal: {}
+      spider_default:
+        aliases:
+          - twenty-server
+
+  twenty-worker:
+    image: twentycrm/twenty:${TWENTY_TAG:-latest}
+    restart: unless-stopped
+    mem_limit: 512m
+    volumes:
+      - twenty_server_data:/app/packages/twenty-server/.local-storage
+    command: ["yarn", "worker:prod"]
+    environment:
+      PG_DATABASE_URL: postgres://${TWENTY_PG_USER:-twenty}:${TWENTY_PG_PASSWORD}@twenty-db:5432/${TWENTY_PG_DATABASE:-twenty}
+      SERVER_URL: ${TWENTY_SERVER_URL}
+      REDIS_URL: redis://twenty-redis:6379
+      DISABLE_DB_MIGRATIONS: "true"
+      DISABLE_CRON_JOBS_REGISTRATION: "true"
+      STORAGE_TYPE: ${TWENTY_STORAGE_TYPE:-local}
+      ENCRYPTION_KEY: ${TWENTY_ENCRYPTION_KEY}
+      APP_SECRET: ${TWENTY_APP_SECRET:-}
+    depends_on:
+      twenty-db:
+        condition: service_healthy
+      twenty-server:
+        condition: service_healthy
+    networks:
+      - twenty_internal
+
+  twenty-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 384m
+    environment:
+      POSTGRES_USER: ${TWENTY_PG_USER:-twenty}
+      POSTGRES_PASSWORD: ${TWENTY_PG_PASSWORD}
+      POSTGRES_DB: ${TWENTY_PG_DATABASE:-twenty}
+    volumes:
+      - twenty_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${TWENTY_PG_USER:-twenty} -d ${TWENTY_PG_DATABASE:-twenty}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - twenty_internal
+
+  twenty-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    command: ["redis-server", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - twenty_internal
+
+networks:
+  twenty_internal:
+    driver: bridge
+  spider_default:
+    external: true
+    name: spider_default
+
+volumes:
+  twenty_db_data:
+  twenty_server_data:

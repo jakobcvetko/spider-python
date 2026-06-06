@@ -93,6 +93,8 @@ services:
     environment:
       DOMAIN: ${DOMAIN}
       PORTAINER_DOMAIN: ${PORTAINER_DOMAIN:-}
+      TWENTY_DOMAIN: ${TWENTY_DOMAIN:-}
+      N8N_DOMAIN: ${N8N_DOMAIN:-}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro

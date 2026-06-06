@@ -16,6 +16,9 @@ For AI agents: full production cheat sheet is in [`AGENTS.md` §9](../AGENTS.md#
 | SSH (CI) | `deploy@46.224.37.205` |
 | App path | `/opt/spider` |
 | Staging URL | https://new.spider.si |
+| Twenty CRM | https://crm.spider.si |
+| n8n | https://n8n.spider.si |
+| Portainer | https://admin-dash.spider.si |
 | Image | `ghcr.io/jakobcvetko/spider-python` |
 
 DNS: `new.spider.si` **A** → `46.224.37.205` (required for HTTPS / Let's Encrypt).
@@ -34,7 +37,28 @@ Managed in **Cloudflare** (zone `spider.si`). API token: repo-root `.env`
 | `worker-matcher` | `python -m matcher.worker` |
 | `worker-avtonet` | `python -m scraper.worker --sources avto.net.lookahead` (needs Firecrawl) |
 | `db` | Postgres 16 (persistent volume) |
-| `caddy` | HTTPS reverse proxy → `api:8000` |
+| `caddy` | HTTPS reverse proxy → `api`, Twenty, n8n, Portainer (`deploy/Caddyfile`) |
+| `portainer` | Docker management UI at `admin-dash.spider.si` |
+
+**Self-hosted Twenty CRM** (`crm.spider.si`, separate compose — not started by CI):
+
+```bash
+cd /opt/spider
+# Set TWENTY_* vars in .env first (see deploy/env.example)
+bash deploy/twenty-prod.sh
+```
+
+**Self-hosted n8n** (`n8n.spider.si`, separate compose — not started by CI):
+
+```bash
+cd /opt/spider
+# Set N8N_* vars in .env first (see deploy/env.example)
+bash deploy/n8n-prod.sh
+```
+
+n8n includes the `@linkedpromo/n8n-nodes-twenty` community package. Twenty API
+credentials in n8n: URL `https://crm.spider.si` (no `/rest` suffix); API key from
+Twenty → Settings → Developers → API & Webhooks.
 
 **Self-hosted Firecrawl** (separate compose, not deployed by CI automatically):
 
@@ -59,7 +83,7 @@ All workers share the production Postgres DB and use `LISTEN`/`NOTIFY` (see `AGE
 
 1. Build `Dockerfile` (frontend → `backend/public`, Python deps via `uv`).
 2. Push `ghcr.io/jakobcvetko/spider-python:latest` and `:<commit-sha>`.
-3. Copy `docker-compose.prod.yml` + `deploy/` to `/opt/spider` on the server.
+3. Copy `docker-compose.prod.yml`, `docker-compose.twenty.prod.yml`, `docker-compose.n8n.prod.yml`, `docker-compose.firecrawl.prod.yml`, + `deploy/` to `/opt/spider` on the server.
 4. SSH: `docker compose pull` → `up -d` → `alembic upgrade head`.
 
 **Manual deploy:** GitHub → Actions → **Deploy** → Run workflow.
@@ -126,6 +150,15 @@ ssh spider.si 'docker compose -f /opt/spider/docker-compose.prod.yml logs worker
 
 ```bash
 curl -sS https://new.spider.si/api/health
+curl -sS -o /dev/null -w '%{http_code}\n' https://crm.spider.si/healthz
+curl -sS -o /dev/null -w '%{http_code}\n' https://n8n.spider.si/healthz
+```
+
+### Twenty / n8n logs
+
+```bash
+ssh spider.si 'cd /opt/spider && docker compose -f docker-compose.twenty.prod.yml logs -f twenty-server'
+ssh spider.si 'cd /opt/spider && docker compose -f docker-compose.n8n.prod.yml logs -f n8n'
 ```
 
 ### Production database
@@ -171,6 +204,11 @@ docker compose -f /opt/spider/docker-compose.prod.yml up -d --force-recreate api
 | `ACME_EMAIL` | your email |
 | `SESSION_COOKIE_SECURE` | `true` |
 | `CORS_ORIGINS` | `https://new.spider.si` |
+| `TWENTY_DOMAIN` / `TWENTY_SERVER_URL` | `crm.spider.si` / `https://crm.spider.si` |
+| `N8N_DOMAIN` / `N8N_WEBHOOK_URL` | `n8n.spider.si` / `https://n8n.spider.si/` |
+
+Twenty and n8n also need `TWENTY_PG_PASSWORD`, `TWENTY_ENCRYPTION_KEY`,
+`N8N_PG_PASSWORD`, `N8N_ENCRYPTION_KEY`, `N8N_JWT_SECRET` — see `deploy/env.example`.
 
 When stable, switch `DOMAIN` / `CORS_ORIGINS` to `spider.si` and recreate `api` + `caddy`.
 

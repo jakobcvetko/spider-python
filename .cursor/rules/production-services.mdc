@@ -1,0 +1,24 @@
+---
+description: Production VPS services — Spider, Twenty CRM, n8n, Portainer on Hetzner
+alwaysApply: true
+---
+
+# Production services (spider.si zone)
+
+Hetzner VPS `46.224.37.205` — SSH `ssh spider.si`, app dir `/opt/spider`.
+
+| Service | URL | Compose | Deploy |
+|---------|-----|---------|--------|
+| Spider (staging) | https://new.spider.si | `docker-compose.prod.yml` | GitHub Actions on push to `main` |
+| Twenty CRM | https://crm.spider.si | `docker-compose.twenty.prod.yml` | `bash deploy/twenty-prod.sh` |
+| n8n | https://n8n.spider.si | `docker-compose.n8n.prod.yml` | `bash deploy/n8n-prod.sh` |
+| Portainer | https://admin-dash.spider.si | in main compose | with spider stack |
+
+- Caddy in the main stack terminates TLS for all public hostnames (`deploy/Caddyfile`).
+- Twenty and n8n join Docker network `spider_default` so Caddy can reach them.
+- Env vars live in `/opt/spider/.env` — template: `deploy/env.example`.
+- CI copies compose files but does **not** auto-start Twenty/n8n; run the `*-prod.sh` scripts on the VPS.
+- n8n ↔ Twenty: use API URL `https://crm.spider.si` (no `/rest`); key from Twenty → Settings → Developers → API & Webhooks. n8n image pre-installs `@linkedpromo/n8n-nodes-twenty`.
+- DNS (Cloudflare, gray cloud / DNS-only): A records `crm`, `n8n`, `new`, `admin-dash` → `46.224.37.205`.
+
+Full detail: `AGENTS.md` §9.7 and `deploy/README.md`.
