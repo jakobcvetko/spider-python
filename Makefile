@@ -3,12 +3,13 @@ MAKEFLAGS += --no-print-directory
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev be fe migrate migration db-up db-down db-shell db-reset stop \
-	bolha\:lookahead bolha\:backfill bolha\:scout avtonet avtonet\:lookahead avtonet\:backfill avtonet\:scout matcher \
+	bolha\:firehose bolha\:lookahead bolha\:backfill bolha\:scout avtonet avtonet\:lookahead avtonet\:backfill avtonet\:scout matcher \
 	firecrawl-up firecrawl-down firecrawl-logs firecrawl-test
 
 help: ## Show this help message
 	@printf "\n\033[1mSpider — dev commands\033[0m\n\n"
 	@awk 'BEGIN {FS = ":[^#]*## "} /^[a-zA-Z_-]+:[^#]*## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:firehose" "Run Bolha JSON-API firehose poller (latest-classifieds)"
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:lookahead" "Scout anchor, then run Bolha lookahead loop"
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:backfill" "Run Bolha backfill scraper worker only"
 	@printf "  \033[36m%-12s\033[0m %s\n" "bolha:scout" "Find Bolha last_working id (one-shot) and exit"
@@ -56,6 +57,9 @@ be: ## Run backend API only (FastAPI on :4000)
 
 fe: ## Run frontend only (Vite on :3000)
 	cd frontend && npm run dev -- --host 127.0.0.1 --port 3000
+
+bolha\:firehose: ## Run Bolha firehose source (JSON-API polling, all categories)
+	cd backend && uv run python -m scraper.worker --sources bolha.firehose
 
 bolha\:lookahead: ## Scout anchor, then run Bolha lookahead loop (long-running)
 	cd backend && uv run python -m scraper.worker --sources bolha.lookahead

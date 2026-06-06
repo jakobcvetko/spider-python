@@ -3,6 +3,7 @@ from scraper.sources.avto_net_backfill import AvtoNetBackfillSource
 from scraper.sources.avto_net_lookahead import AvtoNetLookaheadSource
 from scraper.sources.avto_net_scout import AvtoNetScoutSource
 from scraper.sources.bolha_backfill import BolhaBackfillSource
+from scraper.sources.bolha_firehose import BolhaFirehoseSource
 from scraper.sources.bolha_lookahead import BolhaLookaheadSource
 from scraper.sources.bolha_scout import BolhaScoutSource
 
@@ -12,6 +13,7 @@ ALL_SOURCES = [
     AvtoNetBackfillSource(),
     AvtoNetScoutSource(),
     BolhaBackfillSource(),
+    BolhaFirehoseSource(),
     BolhaLookaheadSource(),
     BolhaScoutSource(),
 ]
@@ -21,6 +23,7 @@ __all__ = [
     "AvtoNetLookaheadSource",
     "AvtoNetBackfillSource",
     "AvtoNetScoutSource",
+    "BolhaFirehoseSource",
     "BolhaLookaheadSource",
     "BolhaBackfillSource",
     "BolhaScoutSource",
